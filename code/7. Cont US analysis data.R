@@ -1,6 +1,6 @@
 # ############################################################################ #
 #' Project: ADRD Distributed Lag Analysis                                      
-#' Code: region analysis data creation  
+#' Code: continental US analysis data creation  
 #' Inputs: denominator data (2000-2016)                                 
 #' Outputs: cleaned yearly qid enrollment and individual data         
 #' Author: Daniel Mork                                                         
@@ -18,9 +18,6 @@ S <- c("DC", "VA", "NC", "WV", "KY", "SC", "GA", "FL", "AL", "TN", "MS",
 MW <- c("OH", "IN", "MI", "IA", "MO", "WI", "MN", "SD", "ND", "IL", "KS", "NE")
 W <- c("MT", "CO", "WY", "ID", "UT", "NV", "CA", "OR", "WA", "AZ", "NM")
 
-
-region <- NE
-region_name <- "NE"
 AD_ADRD <- "ADRD" # AD or ADRD
 code_type <- "any" # primary, secondary, or any
 
@@ -29,18 +26,21 @@ library(data.table)
 library(fst)
 library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 8)
+setDTthreads(threads = 16)
 
 dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
 
-##### 1. Load all data for single region #####
+##### 1. Load all data #####
 
 # year/zip confounders
 yr_zip_confounders <- read_fst(paste0(dir_data, "denom/year_zip_confounders.fst"), 
                                as.data.table = TRUE)
-yr_zip_confounders <- yr_zip_confounders[statecode %in% region]
+yr_zip_confounders[, region := ifelse(statecode %in% NE, "NE",
+                                      ifelse(statecode %in% S, "S", 
+                                             ifelse(statecode %in% MW, "MW",
+                                                    ifelse(statecode %in% W, "W", "Other"))))]
 setkey(yr_zip_confounders, year, zip)
-region_zips <- sort(unique(yr_zip_confounders$zip))
+valid_zips <- sort(unique(yr_zip_confounders[statecode != "Other", zip]))
 
 # hospitalization data
 hosp_dat <- read_fst(paste0(dir_data, 
@@ -54,7 +54,7 @@ hosp_dat <- hosp_dat[year >= 2009]
 qid_entry_exit <- read_fst(paste0(dir_data, "denom/qid_entry_exit.fst"), 
                            as.data.table = TRUE)
 qid_entry_exit <- qid_entry_exit[exit >= 2009 & # find all QIDs with exit after 2009
-                                   entry == 2000 &
+                                   entry == 2000 & # entry 2000
                                    !(qid %in% pre2009_qid) & # eliminate prior ADRD hosp
                                    cont_enroll == TRUE] # restrict to continuously enrolled
 setkey(qid_entry_exit, qid)
@@ -65,7 +65,7 @@ for (yr in 2009:2016) {
   cat("\nReading year", yr)
   dt <- read_fst(paste0(dir_data, "denom/qid_data_", yr, ".fst"), 
                  as.data.table = TRUE)
-  dt <- dt[zip %in% region_zips & # restrict to region zipcodes
+  dt <- dt[zip %in% valid_zips & # restrict to continental US zipcodes
              qid %in% qid_entry_exit$qid & # restrict to exit after 2009, continuous enrollment, no prior ADRD hosp
              !(qid %in% hosp_dat[year < yr, QID])] # eliminate ADRD hosp prior to current year
   cat(" -", dt[,.N], "records")
@@ -84,7 +84,7 @@ qid_dat <- merge(qid_dat, yr_zip_confounders, by = c("year", "zip"), all.x = TRU
 qid_dat <- merge(qid_dat, qid_entry_exit, by = "qid", all.x = TRUE)
 
 setkey(qid_dat, year, zip, qid)
-write_fst(qid_dat, paste0(dir_data, "analysis/region", region_name, "_", AD_ADRD, "_", 
+write_fst(qid_dat, paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
                           code_type, "_qid.fst"))
 rm(hosp_dat, yr_zip_confounders, qid_entry_exit, pre2009_qid); gc()
 
@@ -105,7 +105,7 @@ for (e in exposures) {
     dt
   }), use.names = TRUE, fill = TRUE)
   setkey(exp_dat, year, zip, qid)
-  write_fst(exp_dat, paste0(dir_data, "analysis/region", region_name, "_", AD_ADRD, "_", 
+  write_fst(exp_dat, paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
                             code_type, "_", e, ".fst"))
   rm(exp_dat)
   cat(" complete.")

@@ -39,4 +39,8 @@ Data descriptions:
   /analysis_data/ : final datasets prepped for analysis
     stateXX_(AD/ADRD)_(primary/any)_xxx.fst: state specific qid (xxx = qid) or 
       lagged exposure data matched one-to-one with qid data
+    regionXX_(AD/ADRD)_(primary/any)_xxx.fst: region specific qid (xxx = qid) or 
+      lagged exposure data matched one-to-one with qid data
+    contUS_(AD/ADRD)_(primary/any)_xxx.fst: continental US qid (xxx = qid) or 
+      lagged exposure data matched one-to-one with qid data
    

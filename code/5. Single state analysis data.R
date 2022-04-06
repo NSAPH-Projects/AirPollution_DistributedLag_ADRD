@@ -45,6 +45,7 @@ hosp_dat <- hosp_dat[year >= 2009]
 qid_entry_exit <- read_fst(paste0(dir_data, "denom/qid_entry_exit.fst"), 
                            as.data.table = TRUE)
 qid_entry_exit <- qid_entry_exit[exit >= 2009 & # find all QIDs with exit after 2009
+                                 entry == 2000 &
                                    !(qid %in% pre2009_qid) & # eliminate prior ADRD hosp
                                    cont_enroll == TRUE] # restrict to continuously enrolled
 setkey(qid_entry_exit, qid)
@@ -80,7 +81,7 @@ rm(hosp_dat, yr_zip_confounders, qid_entry_exit, pre2009_qid); gc()
 
 
 ##### 3. Create corresponding exposure data #####
-exposures <- c("pm25", "no2", "ozone") # from pm25, no2, ozone, tmmx, rmax, pr
+exposures <- c("pm25", "no2", "ozone", "tmmx", "rmax", "pr") # from pm25, no2, ozone, tmmx, rmax, pr
 for (e in exposures) {
   cat("\nCreating exposure data:", e, "...")
   qid_yr_exp <- read_fst(paste0(dir_data, "qid_yr_exposures/qid_yr_", e, ".fst"), 

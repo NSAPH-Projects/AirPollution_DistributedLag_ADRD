@@ -18,7 +18,7 @@ File descriptions:
 
 -----
 Data descriptions:
-../../Data/ADRD_DLM/
+../../Data/DLM_ADRD/
   /qid_yr_exposures/
     qid_yr_xxx.fst: exposure data for each qid (rows) and every year (cols)
 	(zip, pm25, no2, ozone, pr = precip, tmmx = max temp, rmax = max humidity)
