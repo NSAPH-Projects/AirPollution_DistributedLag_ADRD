@@ -43,25 +43,49 @@ setkey(yr_zip_confounders, year, zip)
 valid_zips <- sort(unique(yr_zip_confounders[statecode != "Other", zip]))
 
 # hospitalization data
-hosp_dat <- read_fst(paste0(dir_data, 
-                            "hospitalization/First_hosp_", AD_ADRD, "_", code_type, ".fst"), 
+hosp_dat <- read_fst(paste0(dir_data, "hospitalization/First_hosp_", 
+                            AD_ADRD, "_", code_type, ".fst"), 
                      as.data.table = TRUE)
 hosp_dat[, first_hosp := TRUE]
-pre2009_qid <- hosp_dat[year < 2009, QID]
-hosp_dat <- hosp_dat[year >= 2009]
+setkey(hosp_dat, QID)
 
 # FFS beneficiary enrollment history
 qid_entry_exit <- read_fst(paste0(dir_data, "denom/qid_entry_exit.fst"), 
                            as.data.table = TRUE)
-qid_entry_exit <- qid_entry_exit[exit >= 2009 & # find all QIDs with exit after 2009
-                                   entry == 2000 & # entry 2000
-                                   !(qid %in% pre2009_qid) & # eliminate prior ADRD hosp
-                                   cont_enroll == TRUE] # restrict to continuously enrolled
+qid_entry_exit[entry == 2000, .N] # 27,133,737
+qid_entry_exit[entry == 2000, mean(entry_age)] # 27,133,737
+# Merge with hospitalization records
 setkey(qid_entry_exit, qid)
+temp <- merge(hosp_dat[year < 2010, .(QID, year, first_hosp)], 
+              qid_entry_exit[entry == 2000, .(qid, entry, exit, entry_age, dead)], 
+              by.x = 'QID', by.y = "qid", all.y = TRUE)
+temp[is.na(first_hosp), first_hosp := FALSE]
+temp[is.na(year), year := exit]
+temp[entry == 2000 & year < 2010 & first_hosp, .N] # 4,369,407
+temp[entry == 2000 & year < 2010 & first_hosp, 
+     mean(exit - entry + entry_age)] # 85.8
+temp[entry == 2000 & exit < 2010 & dead & !first_hosp, .N] # 9,170,192
+temp[entry == 2000 & exit < 2010 & dead & !first_hosp, 
+     mean(exit - entry + entry_age)] # 81.8 avg age death
+temp[entry == 2000 & exit < 2010 & !dead & !first_hosp, .N] # 3,385,436
+temp[entry == 2000 & exit < 2010 & !dead & !first_hosp, 
+               mean(exit - entry + entry_age)] # 77.4 avg age censor
+rm(temp)
+
+
+# Restrict to 2010 and later
+pre2009_qid <- sort(unique(hosp_dat[year <= 2009, QID]))
+hosp_dat <- hosp_dat[year > 2009]
+qid_entry_exit <- qid_entry_exit[exit > 2009 & # find all QIDs with exit after 2009
+                                   entry == 2000 & # entry 2000
+                                   !(qid %in% pre2009_qid)] # eliminate prior ADRD hosp
+setkey(qid_entry_exit, qid)
+
+
 
 # FFS beneficiary yearly data
 qid_dat <- data.table()
-for (yr in 2009:2016) {
+for (yr in 2010:2016) {
   cat("\nReading year", yr)
   dt <- read_fst(paste0(dir_data, "denom/qid_data_", yr, ".fst"), 
                  as.data.table = TRUE)
@@ -90,7 +114,7 @@ rm(hosp_dat, yr_zip_confounders, qid_entry_exit, pre2009_qid); gc()
 
 
 ##### 3. Create corresponding exposure data #####
-exposures <- c("pm25", "no2", "ozone", "tmmx", "rmax", "pr") # from pm25, no2, ozone, tmmx, rmax, pr
+exposures <- c("pm25", "no2", "ozone") # from pm25, no2, ozone, tmmx, rmax, pr
 for (e in exposures) {
   cat("\nCreating exposure data:", e, "...")
   qid_yr_exp <- read_fst(paste0(dir_data, "qid_yr_exposures/qid_yr_", e, ".fst"), 

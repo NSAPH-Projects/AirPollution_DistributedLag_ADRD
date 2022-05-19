@@ -96,11 +96,10 @@ ozone_dat <- ozone_dat[idx3,]
 tmmx_dat <- tmmx_dat[idx3,]
 rmax_dat <- rmax_dat[idx3,]
 pr_dat <- pr_dat[idx3,]
-setkey(qid_dat, year, zip, qid)
 rm(idx, idx2, idx3, qid_rm)
 
 ##### Summary stats #####
-qid_dat[, .N]
+qid_dat[, .N] # 960945
 qid_dat[, uniqueN(qid)]
 qid_dat[, uniqueN(qid), by = year]
 qid_dat[, sum(first_hosp)]
@@ -113,61 +112,70 @@ qid_dat[, .(sum(first_hosp)/uniqueN(qid), sum(dead)/uniqueN(qid)), by = year]
 
 ##### 3. DLM analysis - TDLM #####
 library(dlmtree)
-pm_range <- range(pm25_dat[,1:10])
-(splits <- seq(from = 4, to = 25, length.out = 32))
-m <- tdlnm(first_hosp ~ factor(year) - 1 +
-             age_corrected + I(age_corrected^2) + 
-             factor(dual) + factor(race) + factor(sexM) +
-             education + poverty + PIR +
-             pct_blk + hispanic + popdensity + pct_owner_occ,
+library(mgcv)
+form <- as.formula(first_hosp ~ factor(year) +
+                     age_corrected + I(age_corrected^2) + 
+                     factor(dual) + factor(race) + factor(sexM) +
+                     education + poverty + PIR +
+                     pct_blk + hispanic + popdensity + pct_owner_occ)
+init.params <- bam(form,
+                   data = qid_dat, 
+                   family = binomial,
+                   nthreads = 8, samfrac = 0.1, chunk.size = 5000,
+                   control = gam.control(trace = TRUE))
+pm_range <- quantile(pm25_dat[,1:10], c(0.005, 0.995))
+(splits <- seq(from = pm_range[1], to = pm_range[2], length.out = 30))
+m <- tdlnm(form,
            data = qid_dat,
-           exposure.data = pm25_dat[,1:10], 
-           exposure.splits = splits,
-           exposure.se = sd(pm25_dat[,1:10]) / 2,
-           family = "logit",
-           n.trees = 10, n.burn = 2000, n.iter = 5000, n.thin = 5, 
-           max.threads = 2)
-save(m, file = paste0(dir_data, "analysis/tdlnm_state", state, "_", AD_ADRD, "_", 
-                      code_type, "_pm25.rda"))
-(s <- summary(m, cenval = 5))#, cenval = splits[3]))
+           exposure.data = ozone_dat[, 1:10],
+           exposure.splits = 0,#splits,
+           # exposure.se = sd(pm25_dat[, 1:10]) / 2,
+           family = "logit", #tree.params = c(.95, 2),
+           n.trees = 10, n.burn = 2000, n.iter = 5000, n.thin = 5,
+           initial.params = init.params$coef)
+save(m, file = paste0(dir_data, "analysis/tdlm_state", state, "_", AD_ADRD, "_", 
+                      code_type, "_ozone.rda"))
+plot(data.frame(init.params$coefficients, colMeans(m$gamma))[-1,]); abline(0,1)
+(s <- summary(m))#, cenval = 5))#, cenval = splits[3]))
 plot(s)
-plot(s, "slice", time = 9)
-plot(s, "slice", val = 14)
+plot(s, "slice", time = 1)
+plot(s, "slice", time = 2)
+plot(s, "slice", time = 3)
+plot(s, "slice", time = 4)
+plot(s, "slice", time = 5)
+plot(s, "slice", time = 6)
+plot(s, "slice", time = 7)
 plot(s, "cumulative")
 
 
 ##### 4. DLMM analysis - TDLMM #####
 library(dlmtree)
 library(mgcv)
-prD_L <- bam(dead ~ factor(year) - 1 +
-               age_corrected + I(age_corrected^2) + 
-               factor(dual) + factor(race) + factor(sexM) +
-               education + poverty + PIR +
-               pct_blk + hispanic + popdensity + pct_owner_occ,
-             data = qid_dat, 
-             family = binomial)
-prD <- bam(dead ~ factor(year) - 1,
-           data = qid_dat, 
-           family = binomial)
-qid_dat[, pD := predict(prD, newdata = .SD, type = "response") /
-          predict(prD_L, newdata = .SD, type = "response")]
-mm <- tdlmm(first_hosp ~ factor(year) - 1 + pD +
-              age_corrected + I(age_corrected^2) + 
-              factor(dual) + factor(race) + factor(sexM) +
-              education + poverty +
-              I(medianhousevalue/medhouseholdincome) +
-              pct_blk + hispanic + popdensity + pct_owner_occ,
-            data = qid_dat,
+form <- as.formula(first_hosp ~ factor(year) +
+                     age_corrected + I(age_corrected^2) + 
+                     factor(dual) + factor(race) + factor(sexM) +
+                     education + poverty + PIR +
+                     pct_blk + hispanic + popdensity + pct_owner_occ)
+init.params <- bam(form,
+                   data = qid_dat, 
+                   family = binomial,
+                   nthreads = 8, samfrac = 0.1, chunk.size = 5000,
+                   control = gam.control(trace = TRUE))
+mm <- tdlmm(form, data = qid_dat,
             exposure.data = list(pm25 = pm25_dat[,1:10], 
                                  no2 = no2_dat[,1:10], 
                                  ozone = ozone_dat[,1:10],
                                  tmmx = tmmx_dat[,1:10],
                                  rmax = rmax_dat[,1:10],
                                  pr = pr_dat[,1:10]), 
-            mixture.interactions = "noself",
+            mixture.interactions = "all",
             family = "logit",
-            mix.prior = 0.167, # Prior inc prob = 0.5
-            n.trees = 20, n.burn = 5000, n.iter = 10000, n.thin = 5)
+            # subset = which(qid_dat$qid %in% 
+            #                  qid_dat[year == 2010, qid
+            #                          ][sample(qid_dat[year == 2010, .N], 20000)]),
+            mix.prior = 1.236, # Prior inc prob = 0.9
+            n.trees = 20, n.burn = 2000, n.iter = 5000, n.thin = 5,
+            initial.params = init.params$coefficients)
 save(mm, file = paste0(dir_data, "analysis/tdlmm_state", state, "_", AD_ADRD, "_", 
                        code_type, "_pm25_no2_ozone_tmmx_rmax_pr.rda"))
 (ss <- summary(mm, conf.level = .95))
@@ -179,25 +187,23 @@ corrplot::corrplot(mix_cor, type = "upper")
 ##### 5. DLM analysis - GAM #####
 library(dlnm)
 library(mgcv)
-cb <- crossbasis(pm25_dat[,1:10], c(0, 9),
+cb <- crossbasis(pm25_dat[,1:10], c(1, 10),
                  argvar = list(fun = "lin"), 
                  arglag = list(fun = "ps"))
 cb_pen <- cbPen(cb)
-m2 <- bam(first_hosp ~ factor(year) - 1 + 
-            s(fips, bs = "re") + # random effect of county
-            age + I(age^2) + 
+m2 <- bam(first_hosp ~ cb +
+            factor(year) + 
+            age_corrected + I(age_corrected^2) + 
             factor(dual) + factor(race) + factor(sexM) +
-            cb + 
-            pD +
             education + poverty + PIR + # price to income ratio
             pct_blk + hispanic + popdensity + pct_owner_occ,
           data = qid_dat, 
           paraPen = list(cb = cb_pen),
           family = binomial,
-          nthreads = 8,
+          nthreads = 4, 
           control = gam.control(trace = TRUE))
 summary(m2)
-cp <- crosspred(cb, m2, cen = 5, at = seq(2, 25, by = 0.5), bylag = 0.2)
+cp <- crosspred(cb, m2, cen = 5, at = 5:15, bylag = 0.2)
 plot(cp, "slices", var = 10)
 plot(cp, "overall")
 

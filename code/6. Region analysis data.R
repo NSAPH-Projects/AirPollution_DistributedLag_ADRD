@@ -90,7 +90,9 @@ rm(hosp_dat, yr_zip_confounders, qid_entry_exit, pre2009_qid); gc()
 
 
 ##### 3. Create corresponding exposure data #####
-exposures <- c("pm25", "no2", "ozone", "tmmx", "rmax", "pr") # from pm25, no2, ozone, tmmx, rmax, pr
+# exposures <- c("pm25", "no2", "ozone", "tmmx", "rmax", "pr") # from pm25, no2, ozone, tmmx, rmax, pr
+exposures <- paste0("pm25comp_", c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
+                                   "no3", "oc", "pb", "si", "so4", "v", "z"))
 for (e in exposures) {
   cat("\nCreating exposure data:", e, "...")
   qid_yr_exp <- read_fst(paste0(dir_data, "qid_yr_exposures/qid_yr_", e, ".fst"), 

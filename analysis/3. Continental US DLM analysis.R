@@ -19,7 +19,7 @@ library(data.table)
 library(fst)
 library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 16)
+setDTthreads(threads = 32)
 
 dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
 
@@ -28,10 +28,10 @@ qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
                            code_type, "_qid.fst"), as.data.table = TRUE)
 pm25_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
                             code_type, "_pm25.fst"), as.data.table = TRUE)
-# no2_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
-#                            code_type, "_no2.fst"), as.data.table = TRUE)
-# ozone_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
-#                              code_type, "_ozone.fst"), as.data.table = TRUE)
+no2_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
+                           code_type, "_no2.fst"), as.data.table = TRUE)
+ozone_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
+                             code_type, "_ozone.fst"), as.data.table = TRUE)
 # tmmx_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
 #                              code_type, "_tmmx.fst"), as.data.table = TRUE)
 # rmax_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
@@ -39,8 +39,8 @@ pm25_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
 # pr_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
 #                              code_type, "_pr.fst"), as.data.table = TRUE)
 pm25_dat <- as.matrix(pm25_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
-# no2_dat <- as.matrix(no2_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
-# ozone_dat <- as.matrix(ozone_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
+no2_dat <- as.matrix(no2_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
+ozone_dat <- as.matrix(ozone_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
 # tmmx_dat <- as.matrix(tmmx_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
 # rmax_dat <- as.matrix(rmax_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
 # pr_dat <- as.matrix(pr_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove keys and lag0
@@ -48,8 +48,8 @@ pm25_dat <- as.matrix(pm25_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remo
 
 ##### 2. Restrict to complete follow-up 2010 through 2016, no deaths #####
 idx <- which(rowSums(is.na(pm25_dat[, 1:10])) == 0 & # no missing exposures lags 1-10
-               # rowSums(is.na(no2_dat[, 1:10])) == 0 &
-               # rowSums(is.na(ozone_dat[, 1:10])) == 0 &
+               rowSums(is.na(no2_dat[, 1:10])) == 0 &
+               rowSums(is.na(ozone_dat[, 1:10])) == 0 &
                # rowSums(is.na(tmmx_dat[, 1:10])) == 0 &
                # rowSums(is.na(rmax_dat[, 1:10])) == 0 &
                # rowSums(is.na(pr_dat[, 1:10])) == 0 &
@@ -57,8 +57,8 @@ idx <- which(rowSums(is.na(pm25_dat[, 1:10])) == 0 & # no missing exposures lags
                qid_dat$year > 2009) # year 2010 and later for 10 lag years exposures
 qid_dat <- qid_dat[idx]
 pm25_dat <- pm25_dat[idx,]
-# no2_dat <- no2_dat[idx,]
-# ozone_dat <- ozone_dat[idx,]
+no2_dat <- no2_dat[idx,]
+ozone_dat <- ozone_dat[idx,]
 # tmmx_dat <- tmmx_dat[idx,]
 # rmax_dat <- rmax_dat[idx,]
 # pr_dat <- pr_dat[idx,]
@@ -74,8 +74,8 @@ idx2 <- which(complete.cases(qid_dat[,.(year, age_corrected, dual, race, sexM,
                 !is.infinite(qid_dat$PIR))
 qid_dat <- qid_dat[idx2]
 pm25_dat <- pm25_dat[idx2,]
-# no2_dat <- no2_dat[idx2,]
-# ozone_dat <- ozone_dat[idx2,]
+no2_dat <- no2_dat[idx2,]
+ozone_dat <- ozone_dat[idx2,]
 # tmmx_dat <- tmmx_dat[idx2,]
 # rmax_dat <- rmax_dat[idx2,]
 # pr_dat <- pr_dat[idx2,]
@@ -89,12 +89,11 @@ for (yr in 2011:2016) {
 }
 qid_dat <- qid_dat[idx3]
 pm25_dat <- pm25_dat[idx3,]
-# no2_dat <- no2_dat[idx3,]
-# ozone_dat <- ozone_dat[idx3,]
+no2_dat <- no2_dat[idx3,]
+ozone_dat <- ozone_dat[idx3,]
 # tmmx_dat <- tmmx_dat[idx3,]
 # rmax_dat <- rmax_dat[idx3,]
 # pr_dat <- pr_dat[idx3,]
-setkey(qid_dat, year, zip, qid)
 rm(idx, idx2, idx3, qid_rm)
 
 ##### Summary stats #####
@@ -155,30 +154,88 @@ plot(ss)
 ##### 5. DLM analysis - GAM #####
 library(dlnm)
 library(mgcv)
-cb <- crossbasis(pm25_dat[, 1:10], c(1, 10),
+cb_pm <- crossbasis(pm25_dat[, 1:10], c(1, 10),
                  argvar = list(fun = "lin"), 
-                 arglag = list(fun = "ps"))
-cb_pen <- cbPen(cb)
-m2 <- bam(first_hosp ~ factor(year) - 1 + 
+                 arglag = list(fun = "cr", df = 5))
+cb_no <- crossbasis(no2_dat[, 1:10], c(1, 10),
+                    argvar = list(fun = "lin"),
+                    arglag = list(fun = "cr", df = 5))
+cb_oz <- crossbasis(ozone_dat[, 1:10], c(1, 10),
+                    argvar = list(fun = "lin"),
+                    arglag = list(fun = "cr", df = 5))
+cb_pm_pen <- cbPen(cb_pm)
+cb_no_pen <- cbPen(cb_no)
+cb_oz_pen <- cbPen(cb_oz)
+m2 <- bam(first_hosp ~ factor(year) + 
             factor(region) +
-            cb + 
+            cb_pm + cb_no + cb_oz +
             age_corrected + I(age_corrected^2) + 
             factor(dual) + factor(race) + factor(sexM) +
             education + poverty + PIR +
             pct_blk + hispanic + popdensity + pct_owner_occ,
           data = qid_dat, 
-          paraPen = list(cb = cb_pen),
+          paraPen = list(cb_pm = cb_pm_pen,
+                         cb_no = cb_no_pen,
+                         cb_oz = cb_oz_pen),
           family = binomial,
-          nthreads = 16,
+          nthreads = 16, samfrac = 0.05, chunk.size = 10000,
           control = gam.control(trace = TRUE))
 summary(m2)
-cp <- crosspred(cb, m2, cen = 5, at = 2:25, bylag = 0.2)
-save(cp, file = paste0(dir_data, "analysis/gamps_contUS_", AD_ADRD, "_", 
-                       code_type, ".rda"))
-plot(cp, "slices", var = 10, xlab = "Years prior", ylab = "Hazard Odds")
-plot(cp, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+cp_pm <- crosspred(cb_pm, m2, cen = 5, at = 5:15, bylag = 0.2)
+cp_no <- crosspred(cb_no, m2, cen = 6, at = 6:47, bylag = 0.2)
+cp_oz <- crosspred(cb_oz, m2, cen = 28, at = 28:41, bylag = 0.2)
+save(cp_pm, cp_no, cp_oz, file = paste0(dir_data, "analysis/gamcr_contUS_", AD_ADRD, "_", 
+                       code_type, "_pm25_no2_ozone.rda"))
+plot(cp_pm, "slices", var = 10, xlab = "Years prior", ylab = "Hazard Odds (PM2.5)")
+plot(cp_no, "slices", var = 20, xlab = "Years prior", ylab = "Hazard Odds (NO2)")
+plot(cp_oz, "slices", var = 36, xlab = "Years prior", ylab = "Hazard Odds (Ozone)")
+plot(cp_pm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+plot(cp_no, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+plot(cp_oz, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
 
 
+
+##### 5.2 DLNM analysis - GAM #####
+library(dlnm)
+library(mgcv)
+cb_pm <- crossbasis(pm25_dat[, 1:10], c(1, 10),
+                    argvar = list(fun = "ps", df = 5), 
+                    arglag = list(fun = "ps", df = 5))
+# cb_no <- crossbasis(no2_dat[, 1:10], c(1, 10),
+#                     argvar = list(fun = "lin"), 
+#                     arglag = list(fun = "ps"))
+# cb_oz <- crossbasis(ozone_dat[, 1:10], c(1, 10),
+#                     argvar = list(fun = "lin"), 
+#                     arglag = list(fun = "ps"))
+cb_pm_pen <- cbPen(cb_pm)
+# cb_no_pen <- cbPen(cb_no)
+# cb_oz_pen <- cbPen(cb_oz)
+m2 <- bam(first_hosp ~ factor(year) - 1 + factor(region) +
+            cb_pm + #cb_no + cb_oz +
+            age_corrected + I(age_corrected^2) + 
+            factor(dual) + factor(race) + factor(sexM) +
+            education + poverty + PIR +
+            pct_blk + hispanic + popdensity + pct_owner_occ,
+          data = qid_dat, 
+          #paraPen = list(cb_pm = cb_pm_pen), 
+          # cb_no = cb_no_pen, 
+          # cb_oz = cb_oz_pen),
+          family = binomial,
+          nthreads = 32, samfrac = 0.1, chunk.size = 5000,
+          control = gam.control(trace = TRUE))
+summary(m2)
+cp_pm <- crosspred(cb_pm, m2, cen = 5, at = 5:15, bylag = 0.2)
+# cp_no <- crosspred(cb_no, m2, cen = 6, at = 6:47, bylag = 0.2)
+# cp_oz <- crosspred(cb_oz, m2, cen = 28, at = 28:41, bylag = 0.2)
+save(cp_pm, #cp_no, cp_oz, 
+     file = paste0(dir_data, "analysis/gam-ps_dlnm_contUS_", AD_ADRD, "_", 
+                   code_type, "_pm25.rda"))
+plot(cp_pm, "slices", var = 10, xlab = "Years prior", ylab = "Hazard Odds (PM2.5)")
+# plot(cp_no, "slices", var = 20, xlab = "Years prior", ylab = "Hazard Odds (NO2)")
+# plot(cp_oz, "slices", var = 36, xlab = "Years prior", ylab = "Hazard Odds (Ozone)")
+plot(cp_pm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+# plot(cp_no, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+# plot(cp_oz, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
 
 ##### 6. Comp risk DLM analysis #####
 library(dlnm)

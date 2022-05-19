@@ -20,7 +20,7 @@ library(data.table)
 library(fst)
 library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 8)
+setDTthreads(threads = 16)
 
 dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
 
@@ -49,11 +49,11 @@ pr_dat <- as.matrix(pr_dat[, -c(1:3, 20)])[, 16:1] # reorder exposures, remove k
 
 ##### 2. Restrict to complete follow-up 2010 through 2016, no deaths #####
 idx <- which(rowSums(is.na(pm25_dat[, 1:10])) == 0 & # no missing exposures lags 1-10
-               rowSums(is.na(no2_dat[, 1:10])) == 0 &
-               rowSums(is.na(ozone_dat[, 1:10])) == 0 &
-               rowSums(is.na(tmmx_dat[, 1:10])) == 0 &
-               rowSums(is.na(rmax_dat[, 1:10])) == 0 &
-               rowSums(is.na(pr_dat[, 1:10])) == 0 &
+               # rowSums(is.na(no2_dat[, 1:10])) == 0 &
+               # rowSums(is.na(ozone_dat[, 1:10])) == 0 &
+               # rowSums(is.na(tmmx_dat[, 1:10])) == 0 &
+               # rowSums(is.na(rmax_dat[, 1:10])) == 0 &
+               # rowSums(is.na(pr_dat[, 1:10])) == 0 &
                qid_dat$entry == 2000 & # follow up from 2000
                qid_dat$year > 2009) # year 2010 and later for 10 lag years exposures
 qid_dat <- qid_dat[idx]
@@ -68,11 +68,11 @@ pr_dat <- pr_dat[idx,]
 qid_dat[, age_corrected := entry_age + year - entry]
 qid_dat[, PIR := medianhousevalue/medhouseholdincome]
 # clear missing data, infinite PIR
-idx2 <- which(complete.cases(qid_dat[,.(year, age_corrected, dual, race, sexM,
-                                        education, poverty, medianhousevalue,
-                                        medhouseholdincome, pct_blk, hispanic,
-                                        popdensity, pct_owner_occ, PIR)]) &
-                !is.infinite(qid_dat$PIR))
+idx2 <- which(rowSums(pm25_dat[, 1:10] == 0) == 0 &
+                !is.infinite(qid_dat$PIR) &
+                complete.cases(qid_dat[,.(year, age_corrected, dual, race, sexM,
+                                        education, poverty, pct_blk, hispanic,
+                                        popdensity, pct_owner_occ, PIR)]))
 qid_dat <- qid_dat[idx2]
 pm25_dat <- pm25_dat[idx2,]
 no2_dat <- no2_dat[idx2,]
@@ -95,7 +95,6 @@ ozone_dat <- ozone_dat[idx3,]
 tmmx_dat <- tmmx_dat[idx3,]
 rmax_dat <- rmax_dat[idx3,]
 pr_dat <- pr_dat[idx3,]
-setkey(qid_dat, year, zip, qid)
 rm(idx, idx2, idx3, qid_rm)
 
 ##### Summary stats #####
@@ -111,33 +110,52 @@ qid_dat[, .(sum(first_hosp)/uniqueN(qid), sum(dead)/uniqueN(qid)), by = year]
 
 ##### 3. DLM analysis - TDLM #####
 library(dlmtree)
+library(mgcv)
+form <- as.formula(first_hosp ~ factor(year) +
+                     age_corrected + I(age_corrected^2) + 
+                     latitude * longitude +
+                     factor(dual) + factor(race) + factor(sexM) +
+                     education + poverty + PIR +
+                     pct_blk + hispanic + popdensity + pct_owner_occ)
+init.params <- bam(form,
+                   data = qid_dat, 
+                   family = binomial,
+                   nthreads = 8, samfrac = 0.05, chunk.size = 5000,
+                   control = gam.control(trace = TRUE))$coef
 pm_range <- quantile(pm25_dat[,1:10], c(0.005, 0.995))
-(splits <- seq(from = pm_range[1], to = pm_range[2], length.out = 30))
-m <- tdlnm(first_hosp ~ factor(year) - 1 +
-             age_corrected + I(age_corrected^2) + 
-             factor(dual) + factor(race) + factor(sexM) +
-             education + poverty + PIR +
-             pct_blk + hispanic + popdensity + pct_owner_occ,
+(splits <- seq(from = pm_range[1], to = pm_range[2], length.out = 20))
+set.seed(38173)
+m <- tdlnm(form,
            data = qid_dat,
            exposure.data = pm25_dat[, 1:10], 
            exposure.splits = splits,
            exposure.se = sd(pm25_dat[, 1:10]) / 2,
-           family = "logit",
-           n.trees = 10, n.burn = 2000, n.iter = 5000, n.thin = 5, 
-           max.threads = 2)
+           family = "logit", 
+           n.trees = 10, n.burn = 1000, n.iter = 2500, n.thin = 2,
+           initial.params = init.params)
 save(m, file = paste0(dir_data, "analysis/tdlnm_region", region, "_", AD_ADRD, "_", 
                       code_type, "_pm25.rda"))
-(s <- summary(m, cenval = 5))
+(s <- summary(m))#, cenval = 5))
 plot(s)
 
 
 ##### 4. DLMM analysis - TDLMM #####
 library(dlmtree)
-mm <- tdlmm(first_hosp ~ factor(year) - 1 + 
-              age_corrected + I(age_corrected^2) + 
-              factor(dual) + factor(race) + factor(sexM) +
-              education + poverty + PIR +
-              pct_blk + hispanic + popdensity + pct_owner_occ,
+library(mgcv)
+form <- as.formula(first_hosp ~ factor(year) +
+                     age_corrected + I(age_corrected^2) + 
+                     factor(dual) + factor(race) + factor(sexM) +
+                     education + poverty + PIR +
+                     pct_blk + hispanic + popdensity + pct_owner_occ)
+init.params <- bam(form,
+                   data = qid_dat, 
+                   family = binomial,
+                   nthreads = 8, samfrac = 0.1, chunk.size = 5000,
+                   control = gam.control(trace = TRUE))
+set.seed(8372)
+qid_samp <- qid_dat[year == 2010, qid][sample(qid_dat[year == 2010, .N], 200000)]
+qid_dat[qid %in% qid_samp, .N] #994428
+mm <- tdlmm(form,
             data = qid_dat,
             exposure.data = list(pm25 = pm25_dat[,1:10], 
                                  no2 = no2_dat[,1:10], 
@@ -147,11 +165,12 @@ mm <- tdlmm(first_hosp ~ factor(year) - 1 +
                                  pr = pr_dat[,1:10]), 
             mixture.interactions = "all",
             family = "logit",
-            subset = sample(qid_dat[,.N], 500000),
+            subset = which(qid_dat$qid %in% qid_samp),
             mix.prior = 1.263, # prior inc prob = 0.9
-            n.trees = 20, n.burn = 3000, n.iter = 6000, n.thin = 5)
+            n.trees = 20, n.burn = 2000, n.iter = 5000, n.thin = 5,
+            initial.params = init.params$coef)
 save(mm, file = paste0(dir_data, "analysis/tdlmm_region", region, "_", AD_ADRD, "_", 
-                       code_type, "samp500k_pm25_no2_ozone_tmmx_rmax_pr.rda"))
+                       code_type, "samp200kqid_pm25_no2_ozone_tmmx_rmax_pr_allint.rda"))
 (ss <- summary(mm))
 plot(ss)
 
@@ -175,32 +194,75 @@ cb_oz <- crossbasis(ozone_dat[, 1:10], c(1, 10),
 cb_pm_pen <- cbPen(cb_pm)
 cb_no_pen <- cbPen(cb_no)
 cb_oz_pen <- cbPen(cb_oz)
-m2 <- bam(first_hosp ~ factor(year) - 1 +
-            cb_pm + cb_no + cb_oz +
+m2 <- bam(first_hosp ~ factor(year) +
+            cb_pm + #cb_no + cb_oz +
             age_corrected + I(age_corrected^2) + 
             factor(dual) + factor(race) + factor(sexM) +
             education + poverty + PIR +
             pct_blk + hispanic + popdensity + pct_owner_occ,
           data = qid_dat, 
-          paraPen = list(cb_pm = cb_pm_pen, 
-                         cb_no = cb_no_pen, 
-                         cb_oz = cb_oz_pen),
+         paraPen = list(cb_pm = cb_pm_pen),
+                         # cb_no = cb_no_pen, 
+                         # cb_oz = cb_oz_pen),
           family = binomial,
-          nthreads = 8,
+          nthreads = 16, samfrac = 0.1, chunk.size = 5000,
           control = gam.control(trace = TRUE))
 summary(m2)
 cp_pm <- crosspred(cb_pm, m2, cen = 5, at = 5:15, bylag = 0.2)
 cp_no <- crosspred(cb_no, m2, cen = 6, at = 6:47, bylag = 0.2)
 cp_oz <- crosspred(cb_oz, m2, cen = 28, at = 28:41, bylag = 0.2)
-save(cp_pm, cp_no, cp_oz, 
-     file = paste0(dir_data, "analysis/gam-ps__region", region, "_", AD_ADRD, "_", 
-                       code_type, "_pm25_no2_ozone.rda"))
+save(cp_pm, #cp_no, cp_oz, 
+     file = paste0(dir_data, "analysis/gam-ps_region", region, "_", AD_ADRD, "_", 
+                       code_type, "_pm25.rda"))
 plot(cp_pm, "slices", var = 10, xlab = "Years prior", ylab = "Hazard Odds (PM2.5)")
 plot(cp_no, "slices", var = 20, xlab = "Years prior", ylab = "Hazard Odds (NO2)")
 plot(cp_oz, "slices", var = 36, xlab = "Years prior", ylab = "Hazard Odds (Ozone)")
 plot(cp_pm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
 plot(cp_no, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
 plot(cp_oz, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+
+
+##### 5.2 DLNM analysis - GAM #####
+library(dlnm)
+library(mgcv)
+cb_pm <- crossbasis(pm25_dat[, 1:10], c(1, 10),
+                    argvar = list(fun = "ps", df = 5), 
+                    arglag = list(fun = "ps", df = 5))
+# cb_no <- crossbasis(no2_dat[, 1:10], c(1, 10),
+#                     argvar = list(fun = "lin"), 
+#                     arglag = list(fun = "ps"))
+# cb_oz <- crossbasis(ozone_dat[, 1:10], c(1, 10),
+#                     argvar = list(fun = "lin"), 
+#                     arglag = list(fun = "ps"))
+cb_pm_pen <- cbPen(cb_pm)
+# cb_no_pen <- cbPen(cb_no)
+# cb_oz_pen <- cbPen(cb_oz)
+m2 <- bam(first_hosp ~ factor(year) +
+            cb_pm + #cb_no + cb_oz +
+            age_corrected + I(age_corrected^2) + 
+            factor(dual) + factor(race) + factor(sexM) +
+            education + poverty + PIR +
+            pct_blk + hispanic + popdensity + pct_owner_occ,
+          data = qid_dat, 
+          #paraPen = list(cb_pm = cb_pm_pen), 
+                         # cb_no = cb_no_pen, 
+                         # cb_oz = cb_oz_pen),
+          family = binomial,
+          nthreads = 16, samfrac = 0.1, chunk.size = 5000,
+          control = gam.control(trace = TRUE))
+summary(m2)
+cp_pm <- crosspred(cb_pm, m2, cen = 5, at = 5:15, bylag = 0.2)
+# cp_no <- crosspred(cb_no, m2, cen = 6, at = 6:47, bylag = 0.2)
+# cp_oz <- crosspred(cb_oz, m2, cen = 28, at = 28:41, bylag = 0.2)
+save(cp_pm, #cp_no, cp_oz, 
+     file = paste0(dir_data, "analysis/gam-ps_dlnm_region", region, "_", AD_ADRD, "_", 
+                   code_type, "_pm25.rda"))
+plot(cp_pm, "slices", var = 10, xlab = "Years prior", ylab = "Hazard Odds (PM2.5)")
+# plot(cp_no, "slices", var = 20, xlab = "Years prior", ylab = "Hazard Odds (NO2)")
+# plot(cp_oz, "slices", var = 36, xlab = "Years prior", ylab = "Hazard Odds (Ozone)")
+plot(cp_pm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+# plot(cp_no, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
+# plot(cp_oz, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
 
 
 ##### 6. Comp risk DLM analysis #####
