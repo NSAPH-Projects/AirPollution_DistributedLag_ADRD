@@ -100,6 +100,9 @@ no2_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
                                      code_type, "_no2_clean.fst")))
 ozone_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
                                        code_type, "_ozone_clean.fst")))
+oxidant <- (1.07 * no2_dat + 2.075 * ozone_dat) / 3.145
+write_fst(as.data.frame(oxidant), paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                                         code_type, "_oxidant_clean.fst"))
 
 ##### Summary stats #####
 (n <- qid_dat[year == 2010, .N]) # unique individuals
@@ -127,6 +130,46 @@ qid_dat[, .(N = uniqueN(qid), # proportions by year
 qid_dat[first_hosp == 1, .(age = mean(age_corrected), sd = sd(age_corrected))]
 qid_dat[dead.x == 1, .(age = mean(age_corrected), sd = sd(age_corrected))]
 
+##### Exposure dist #####
+id10 <- which(qid_dat$year == 2010)
+
+#### + 2000-2009 avg ####
+pm_avg <- rowMeans(pm25_dat[id10,1:10])
+no_avg<-rowMeans(no2_dat[id10,1:10])
+oz_avg<-rowMeans(ozone_dat[id10,1:10])
+IQR(pm_avg)
+# [1] 3.563909
+IQR(no_avg)
+# [1] 14.66876
+IQR(oz_avg)
+# [1] 7.642377
+quantile(pm_avg, c(0.005, 0.1, 0.25, 0.5, 0.75, 0.9))
+#       0.5%       10%       25%       50%       75%       90% 
+#   3.380153  7.640351  9.750089 11.732988 13.313998 14.378493 
+quantile(no_avg, c(0.005, 0.1, 0.25, 0.5, 0.75, 0.9))
+#       0.5%       10%       25%       50%       75%       90% 
+#   5.863674 10.074239 13.591063 19.774491 28.259826 36.492478 
+quantile(oz_avg, c(0.005, 0.1, 0.25, 0.5, 0.75, 0.9))
+#       0.5%      10%      25%      50%      75%      90% 
+#   25.35284 37.73337 43.58409 47.94780 51.22647 53.99682 
+
+#### + 2009 avg ####
+IQR(pm25_dat[id10, 1])
+# [1] 2.685467
+IQR(no2_dat[id10, 1])
+# [1] 12.78014
+IQR(ozone_dat[id10, 1])
+# [1] 6.962656
+quantile(pm25_dat[id10, 1], c(0.005, 0.1, 0.25, 0.5, 0.75, 0.9))
+#     0.5%       10%       25%       50%       75%       90% 
+# 2.934505  6.428761  7.990145  9.578878 10.675613 11.786510 
+quantile(no2_dat[id10, 1], c(0.005, 0.1, 0.25, 0.5, 0.75, 0.9))
+#       0.5%       10%       25%       50%       75%       90% 
+#   3.705229  7.036110  9.904588 14.781991 22.684724 31.831597 
+quantile(ozone_dat[id10, 1], c(0.005, 0.1, 0.25, 0.5, 0.75, 0.9))
+#       0.5%      10%      25%      50%      75%      90% 
+#   24.63341 34.98072 38.79868 42.43398 45.76133 49.66674 
+
 ##### Lagged exposure averages #####
 exp_avg <- rbindlist(
   lapply(2010:2016, function(yr) {
@@ -149,7 +192,7 @@ ggplot(exp_avg, aes(x = year - lag, y = mean, ymin = q1, ymax = q3, fill = facto
   labs(x = "Year", y = "Exposure Concentration")
 
 
-##### Primary analysis #####
+##### 3 pollutant analysis #####
 library(mgcv)
 library(dlnm)
 cb_pm <- crossbasis(pm25_dat[, 1:10], c(1, 10),
@@ -166,7 +209,7 @@ cb_no_pen <- cbPen(cb_no)
 cb_oz_pen <- cbPen(cb_oz)
 
 
-##### Competing risk IPW #####
+##### + Competing risk IPW #####
 prD <- bam(dead ~ factor(year) + cb_pm + cb_no + cb_oz,
            data = qid_dat, 
            # paraPen = list(cb_pm = cb_pm_pen,
@@ -203,7 +246,7 @@ plot(prD_L_cp_oz, "slices", var = 36, xlab = "Years prior", ylab = "Hazard Odds 
 qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
 summary(qid_dat$IPWcr)
 
-##### GAM - 3 exposure DLM #####
+##### + GAM - 3 exposure DLM #####
 m2 <- bam(first_hosp ~ factor(year) + factor(region) +
             cb_pm + cb_no + cb_oz +
             age_corrected + I(age_corrected^2) + 
@@ -235,133 +278,6 @@ save(prD_cp_pm, prD_cp_no, prD_cp_oz,
                    code_type, "_pm25_no2_ozone.rda"))
 
 ##### DLM #####
-##### + PM2.5 #####
-AD_ADRD <- "ADRD" # AD or ADRD
-code_type <- "any" # primary or any
-dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
-
-qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
-                           code_type, "_qid_clean.fst"),
-                    as.data.table = TRUE)
-exp_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
-                                     code_type, "_pm25_clean.fst")))[,1:10]
-
-library(mgcv)
-library(dlnm)
-cb_pm_dlm <- crossbasis(exp_dat[, 1:10], c(1, 10), 
-                        arglag = list(fun = "cr", df = 3, intercept = TRUE), 
-                        argvar = list(fun = "lin"))
-
-m3 <- bam(first_hosp ~ cb_pm_dlm +
-            factor(year) + factor(region) +
-            factor(dual) + factor(race) + factor(sexM) +
-            age_corrected + I(age_corrected^2) + 
-            education + poverty + PIR +
-            pct_blk + hispanic + popdensity + pct_owner_occ,
-          data = qid_dat, 
-          family = binomial,
-          nthreads = 16, samfrac = 0.05, 
-          chunk.size = 5000,
-          control = gam.control(trace = TRUE))
-summary(m3)
-sum(m3$edf[2:9])
-k <- quantile(exp_dat, c(.005, .1, .25, .5, .75, .9))
-cp_dlm <- crosspred(cb_pm_dlm, m3, cen = k[1], 
-                    at = sort(c(floor(k[1]):ceiling(k[6]), k)), bylag = 0.2)
-save(cp_dlm, k,
-     file = paste0(dir_data, "analysis/gamcr_dlm8pen_contUS_", AD_ADRD, "_", 
-                   code_type, "_pm25.rda"))
-plot(cp_dlm, "slices", var = k[4], xlab = "Years prior", ylab = "Hazard Odds (PM2.5)")
-plot(cp_dlm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
-
-
-
-
-
-
-
-
-##### + NO2 #####
-library(mgcv)
-library(dlnm)
-AD_ADRD <- "ADRD" # AD or ADRD
-code_type <- "any" # primary or any
-dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
-
-qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
-                           code_type, "_qid_clean.fst"), as.data.table = TRUE)
-exp_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
-                                     code_type, "_no2_clean.fst")))[,1:10]
-(exp_quants <- quantile(exp_dat[,1:10], c(0.005, 0.25, 0.5, 0.75, 0.995)))
-
-cb_pm_dlm <- crossbasis(exp_dat[, 1:10], c(1, 10), 
-                        arglag = list(fun = "cr", df = 4, intercept = TRUE), 
-                        argvar = list(fun = "lin"))
-m3 <- bam(first_hosp ~ cb_pm_dlm +
-            factor(year) + factor(region) +
-            factor(dual) + factor(race) + factor(sexM) +
-            age_corrected + I(age_corrected^2) + 
-            education + poverty + PIR +
-            pct_blk + hispanic + popdensity + pct_owner_occ,
-          data = qid_dat, 
-          family = binomial,
-          nthreads = 16, samfrac = 0.05, 
-          chunk.size = 5000,
-          control = gam.control(trace = TRUE))
-summary(m3)
-cp_pm_dlm <- crosspred(cb_pm_dlm, m3, cen = floor(exp_quants[2]), 
-                       at = floor(exp_quants[1]):ceiling(exp_quants[5]), bylag = 0.2)
-
-save(cp_pm_dlm, exp_quants,
-     file = paste0(dir_data, "analysis/gamcr_dlm4_contUS_", AD_ADRD, "_", 
-                   code_type, "_no2.rda"))
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[1]), xlab = "Years prior", ylab = "Hazard Odds (NO2)")
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[3]), xlab = "Years prior", ylab = "Hazard Odds (NO2)")
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[4]), xlab = "Years prior", ylab = "Hazard Odds (NO2)")
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[5]), xlab = "Years prior", ylab = "Hazard Odds (NO2)")
-plot(cp_pm_dlm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
-
-##### + Summer Ozone #####
-library(mgcv)
-library(dlnm)
-AD_ADRD <- "ADRD" # AD or ADRD
-code_type <- "any" # primary or any
-dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
-
-qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
-                           code_type, "_qid_clean.fst"), as.data.table = TRUE)
-exp_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
-                                     code_type, "_ozone_clean.fst")))[,1:10]
-(exp_quants <- quantile(exp_dat[,1:10], c(0.005, 0.25, 0.5, 0.75, 0.995)))
-
-cb_pm_dlm <- crossbasis(exp_dat[, 1:10], c(1, 10), 
-                        arglag = list(fun = "cr", df = 4, intercept = TRUE), 
-                        argvar = list(fun = "lin"))
-m3 <- bam(first_hosp ~ cb_pm_dlm +
-            factor(year) + factor(region) +
-            factor(dual) + factor(race) + factor(sexM) +
-            age_corrected + I(age_corrected^2) + 
-            education + poverty + PIR +
-            pct_blk + hispanic + popdensity + pct_owner_occ,
-          data = qid_dat, 
-          family = binomial,
-          nthreads = 16, samfrac = 0.05, 
-          chunk.size = 5000,
-          control = gam.control(trace = TRUE))
-summary(m3)
-cp_pm_dlm <- crosspred(cb_pm_dlm, m3, cen = floor(exp_quants[2]), 
-                       at = floor(exp_quants[1]):ceiling(exp_quants[5]), bylag = 0.2)
-
-save(cp_pm_dlm, exp_quants,
-     file = paste0(dir_data, "analysis/gamcr_dlm4_contUS_", AD_ADRD, "_", 
-                   code_type, "_ozone.rda"))
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[1]), xlab = "Years prior", ylab = "Hazard Odds (Summer Ozone)")
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[3]), xlab = "Years prior", ylab = "Hazard Odds (Summer Ozone)")
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[4]), xlab = "Years prior", ylab = "Hazard Odds (Summer Ozone)")
-plot(cp_pm_dlm, "slices", var = floor(exp_quants[5]), xlab = "Years prior", ylab = "Hazard Odds (Summer Ozone)")
-plot(cp_pm_dlm, "overall", xlab = "Exposure Concentration", ylab = "Cumulative Hazard")
-
-
 ##### + AIC df state #####
 library(mgcv)
 library(dlnm)
@@ -573,7 +489,7 @@ initparams <- bam(first_hosp ~
                     education + poverty + PIR +
                     pct_blk + hispanic + popdensity + pct_owner_occ,
                   data = qid_dat, family = binomial,
-                  nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+                  nthreads = 1, samfrac = 0.05, chunk.size = 5000,
                   control = gam.control(trace = TRUE))$coef
 
 n <- qid_dat[year == 2010, .N]
@@ -748,7 +664,7 @@ attributes(cb_dlnm)$dimnames[[2]] <- attributes(cb_temp)$dimnames[[2]]
 
 prD <- bam(dead ~ cb_dlnm + factor(year),
            data = qid_dat, family = binomial,
-           nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+           nthreads = 1, samfrac = 0.05, chunk.size = 5000,
            control = gam.control(trace = TRUE))
 prD_L <- bam(dead ~ cb_dlnm +
                factor(year) + factor(statecode) +
@@ -757,7 +673,7 @@ prD_L <- bam(dead ~ cb_dlnm +
                education + poverty + PIR +
                pct_blk + hispanic + popdensity + pct_owner_occ,
              data = qid_dat, family = binomial,
-             nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+             nthreads = 1, samfrac = 0.05, chunk.size = 5000,
              control = gam.control(trace = TRUE))
 qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
 qid_dat[IPWcr > 10, IPWcr := 10]
@@ -771,7 +687,7 @@ m3 <- bam(first_hosp ~ cb_dlnm +
             pct_blk + hispanic + popdensity + pct_owner_occ,
           data = qid_dat, weights = qid_dat[,IPWcr],
           family = binomial,
-          nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+          nthreads = 1, samfrac = 0.05, chunk.size = 5000,
           control = gam.control(trace = TRUE))
 summary(m3)
 
@@ -834,7 +750,7 @@ attributes(cb_dlnm)$dimnames[[2]] <- attributes(cb_temp)$dimnames[[2]]
 
 prD <- bam(dead ~ cb_dlnm + factor(year),
            data = qid_dat, family = binomial,
-           nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+           nthreads = 1, samfrac = 0.05, chunk.size = 5000,
            control = gam.control(trace = TRUE))
 prD_L <- bam(dead ~ cb_dlnm +
                factor(year) + factor(statecode) +
@@ -843,7 +759,7 @@ prD_L <- bam(dead ~ cb_dlnm +
                education + poverty + PIR +
                pct_blk + hispanic + popdensity + pct_owner_occ,
              data = qid_dat, family = binomial,
-             nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+             nthreads = 1, samfrac = 0.05, chunk.size = 5000,
              control = gam.control(trace = TRUE))
 qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
 qid_dat[IPWcr > 10, IPWcr := 10]
@@ -920,7 +836,7 @@ attributes(cb_dlnm)$dimnames[[2]] <- attributes(cb_temp)$dimnames[[2]]
 
 prD <- bam(dead ~ cb_dlnm + factor(year),
            data = qid_dat, family = binomial,
-           nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+           nthreads = 1, samfrac = 0.05, chunk.size = 5000,
            control = gam.control(trace = TRUE))
 prD_L <- bam(dead ~ cb_dlnm +
                factor(year) + factor(statecode) +
@@ -929,7 +845,7 @@ prD_L <- bam(dead ~ cb_dlnm +
                education + poverty + PIR +
                pct_blk + hispanic + popdensity + pct_owner_occ,
              data = qid_dat, family = binomial,
-             nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+             nthreads = 1, samfrac = 0.05, chunk.size = 5000,
              control = gam.control(trace = TRUE))
 qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
 qid_dat[IPWcr > 10, IPWcr := 10]
@@ -1048,7 +964,7 @@ for (exp in c("pm25", "no2", "ozone")) {
     
     prD <- bam(dead ~ cb_dlm + factor(year),
                data = qid_dat, family = binomial,
-               nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+               nthreads = 1, samfrac = 0.05, chunk.size = 5000,
                control = gam.control(trace = TRUE))
     prD_L <- bam(dead ~ cb_dlm +
                    factor(year) + factor(statecode) +
@@ -1057,7 +973,7 @@ for (exp in c("pm25", "no2", "ozone")) {
                    education + poverty + PIR +
                    pct_blk + hispanic + popdensity + pct_owner_occ,
                  data = qid_dat, family = binomial,
-                 nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+                 nthreads = 1, samfrac = 0.05, chunk.size = 5000,
                  control = gam.control(trace = TRUE))
     qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
     qid_dat[IPWcr > 10, IPWcr := 10]
@@ -1071,7 +987,7 @@ for (exp in c("pm25", "no2", "ozone")) {
                 pct_blk + hispanic + popdensity + pct_owner_occ,
               data = qid_dat, weights = qid_dat$IPWcr, 
               family = binomial,
-              nthreads = 1, samfrac = 0.01, chunk.size = 5000,
+              nthreads = 1, samfrac = 0.05, chunk.size = 5000,
               control = gam.control(trace = TRUE))
     cp_dlm <- crosspred(cb_dlm, m3, cen = 0, at = 0:1, bylag = 0.2)
     plot(cp_dlm, "slices", var = 1, 
@@ -1082,5 +998,58 @@ for (exp in c("pm25", "no2", "ozone")) {
   save(res, exp_iqr,
        file = paste0(dir_data, "analysis/gamns3log_dlm_comprisk_contUS_", 
                      AD_ADRD, "_", code_type, "_", exp, ".rda"))
+}
+
+##### 1 yr exposure #####
+library(mgcv)
+library(dlnm)
+AD_ADRD <- "ADRD" # AD or ADRD
+code_type <- "any" # primary or any
+dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
+qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                           code_type, "_qid_clean.fst"),
+                    as.data.table = TRUE)
+id10 <- which(qid_dat$year == 2010)
+for (exp in c("pm25", "no2", "ozone", "oxidant")) {
+  cat("\n", exp)
+  exp_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                                       code_type, "_", exp, "_clean.fst")))[,1:10]
+  exp_mean <- rowMeans(exp_dat[id10, 1:10])
+  exp_iqr <- IQR(exp_mean)
+  
+  prD <- bam(dead ~ exp_dat[,1] + factor(year),
+             data = qid_dat, family = binomial,
+             nthreads = 1, samfrac = 0.05, chunk.size = 5000,
+             control = gam.control(trace = TRUE))
+  prD_L <- bam(dead ~ exp_dat[,1] +
+                 factor(year) + factor(statecode) +
+                 age_corrected + I(age_corrected^2) +
+                 factor(dual) + factor(race) + factor(sexM) +
+                 education + poverty + PIR +
+                 pct_blk + hispanic + popdensity + pct_owner_occ,
+               data = qid_dat, family = binomial,
+               nthreads = 1, samfrac = 0.05, chunk.size = 5000,
+               control = gam.control(trace = TRUE))
+  qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
+  qid_dat[IPWcr > 10, IPWcr := 10]
+  rm(prD, prD_L)
+  
+  m3 <- bam(first_hosp ~ exp_dat[,1] +
+              factor(year) + factor(statecode) +
+              factor(dual) + factor(race) + factor(sexM) +
+              age_corrected + I(age_corrected^2) + 
+              education + poverty + PIR +
+              pct_blk + hispanic + popdensity + pct_owner_occ,
+            data = qid_dat, weights = qid_dat$IPWcr, 
+            family = binomial,
+            nthreads = 1, samfrac = 0.05, chunk.size = 5000,
+            control = gam.control(trace = TRUE))
+  s3 <- summary(m3)
+  res <- list(est = s3$p.coeff, se = s3$se, iqr = exp_iqr)
+  cat(", HO = ", exp(m3$coefficients[2] * exp_iqr))
+  save(res, exp_iqr,
+       file = paste0(dir_data, "analysis/gam_1yr_comprisk_contUS_", 
+                     AD_ADRD, "_", code_type, "_", exp, ".rda"))
+  rm(cb_dlm, m3); gc()
 }
 

@@ -22,7 +22,8 @@ for (exp in c("pm25", "no2", "ozone")) {
                                 cum_low = exp(fit_cum - se_cum ),
                                 cum_high = exp(fit_cum + se_cum),
                                 df = df,
-                                exp = exp)
+                                exp = exp,
+                                iqr = exp_iqr)
 }
 plot_dat <- rbindlist(plot_dat)
 
