@@ -20,17 +20,16 @@ library(data.table)
 library(fst)
 library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 8)
-Sys.setenv("OMP_NUM_THREADS" = 16)
+setDTthreads(threads = 4)
+Sys.setenv("OMP_NUM_THREADS" = 4)
 
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 
 ##### 1. Load relevant data #####
 qid_dat <- read_fst(paste0(dir_data, "analysis/region", region, "_", AD_ADRD, "_", 
                            code_type, "_qid.fst"), as.data.table = TRUE)
-exp_names <- c(paste0("pm25comp_", c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-                                   "no3", "oc", "pb", "si", "so4", "v", "z")),
-                    "no2", "ozone", "tmmx", "rmax")
+exp_names <- c(paste0("pm25comp_", c("ec", "nh4", "no3", "oc", "so4")),
+                    "no2", "tmmx")
 lag_cols <- paste0("lag", 1:10)
 exposures <- list()
 for (e in exp_names) {
@@ -39,9 +38,8 @@ for (e in exp_names) {
                     "_", code_type, "_", e, ".fst"), columns = lag_cols,
              as.data.table = TRUE))
 }
-exp_names <- c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-               "no3", "oc", "pb", "si", "so4", "v", "z",
-               "no2", "ozone", "tmmx", "rmax")
+exp_names <- c("ec", "nh4", "no3", "oc", "so4",
+               "no2", "tmmx")
 names(exposures) <- exp_names
 
 
@@ -108,11 +106,11 @@ library(dlmtree)
 library(mgcv)
 
 set.seed(8372)
-qid_samp <- qid_dat[year == 2010, qid][sample(qid_dat[year == 2010, .N], 10000)]
-qid_dat[qid %in% qid_samp, .N] # 4972500
+qid_samp <- qid_dat[year == 2010, qid][sample(qid_dat[year == 2010, .N], 500000)]
+qid_dat[qid %in% qid_samp, .N] # 2485517
 
 form <- as.formula(first_hosp ~ factor(year) +
-                     age_corrected + I(age_corrected^2) + 
+                     age_corrected + #I(age_corrected^2) + 
                      factor(dual) + factor(race) + factor(sexM) +
                      education + poverty + PIR +
                      pct_blk + hispanic + popdensity + pct_owner_occ)
@@ -124,23 +122,23 @@ init.params <- bam(form,
 mm <- tdlmm(form,
             data = qid_dat,
             exposure.data = exposures, # 15 pm components, no2, ozone, tmmx, rmax
-            mixture.interactions = "none",
+            mixture.interactions = "noself",
             family = "logit", shrinkage = "exposures",
-            #subset = which(qid_dat$qid %in% qid_samp),
-            mix.prior = 0.876, # prior inc prob = 0.5
-            n.trees = 10, # limited to 20 exposures, 10 interactions
+            subset = which(qid_dat$qid %in% qid_samp),
+            mix.prior = 0.182, # prior inc prob = 0.5
+            n.trees = 20, # limited to 20 exposures, 10 interactions
             n.burn = 1000, n.iter = 2500, n.thin = 5,
             initial.params = init.params)
-save(mm, file = paste0(dir_data, "analysis/tdlmm_10t_0.5pip_alldat_noint_region",
+save(mm, file = paste0(dir_data, "analysis/tdlmm_20t_0.5pip_500k_noself_region",
                        region, "_", AD_ADRD, "_",
-                       code_type, "_pm25comp.rda"))
+                       code_type, "_pm25comp_v3.rda"))
 (ss <- summary(mm))
 #plot.summary.tdlmm(ss)
 
 ##### Adjusting for changes in co-exposures ######
 # idx <- which(qid_dat$qid %in% qid_samp & qid_dat$year == 2010)
 exposureDat <- do.call(cbind.data.frame, 
-                       lapply(exposures, function(e) c(e[,1])))
+                       lapply(exposures, function(e) c(e[which(qid_dat$qid %in% qid_samp),1])))
 expMean <- colMeans(exposureDat) # Empirical means
 expIQRLevels <-                   # 25/75 percentiles of each exposure
   lapply(exposureDat, function(i) quantile(i, probs = c(0.25, 0.75)))
@@ -262,12 +260,12 @@ library(ggplot2)
 expDLM <- do.call(rbind.data.frame, expDLM)
 ggplot(expDLM, aes(x = Week, y = exp(Effect), ymin = exp(Lower), ymax = exp(Upper))) +
   geom_hline(yintercept = 1, color = "red", size = 1) +
-  geom_ribbon(fill = "grey", col = "grey", size = 2) +
+  geom_ribbon(fill = "grey", col = "grey", size = 1) +
   geom_line(size = 1) +
-  facet_wrap(~Name, ncol = 6) +
+  facet_wrap(~Name, ncol = 3) +
   theme_bw(base_size = 12) +
   theme(strip.background = element_rect(fill = "#DDDDDD")) +
-  scale_x_continuous(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0.5), breaks = 1:10) +
   scale_y_continuous(expand = c(0, 0)) +
   ylab("Change in outcome for IQR change in exposure \nadjusting for expected changes in co-exposures") +
   xlab("Years prior") +

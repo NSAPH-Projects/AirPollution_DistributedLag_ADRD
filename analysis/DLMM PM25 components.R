@@ -11,7 +11,6 @@ rm(list = ls())
 gc()
 
 ##### 0. Setup #####
-region <- "NE"
 AD_ADRD <- "ADRD" # AD or ADRD
 code_type <- "any" # primary or any
 
@@ -20,36 +19,26 @@ library(data.table)
 library(fst)
 library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 8)
-Sys.setenv("OMP_NUM_THREADS" = 16)
+setDTthreads(threads = 2)
+Sys.setenv("OMP_NUM_THREADS" = 2)
 
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 
 ##### 1. Load relevant data #####
-qid_dat <- read_fst(paste0(dir_data, "analysis/region", region, "_", AD_ADRD, "_", 
-                           code_type, "_qid.fst"), as.data.table = TRUE)
+qid_dat <- read_fst(paste0(dir_data, "analysis/DLMM_agg/contUS_agg_", 
+                           AD_ADRD, "_", code_type, "_agg_zip.fst"), as.data.table = TRUE)
 exp_names <- c(paste0("pm25comp_", c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-                                   "no3", "oc", "pb", "si", "so4", "v", "z")),
-                    "no2", "ozone", "tmmx", "rmax")
+                                   "no3", "oc", "pb", "si", "so4", "v", "z")))
 lag_cols <- paste0("lag", 1:10)
 exposures <- list()
 for (e in exp_names) {
   exposures[[e]] <- as.matrix(
-    read_fst(paste0(dir_data, "analysis/region", region, "_", AD_ADRD, 
-                    "_", code_type, "_", e, ".fst"), columns = lag_cols,
+    read_fst(paste0(dir_data, "analysis/DLMM_agg/contUS_agg_", AD_ADRD, "_", 
+                    code_type, "_", e, ".fst"), columns = lag_cols,
              as.data.table = TRUE))
 }
 exp_names <- c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-               "no3", "oc", "pb", "si", "so4", "v", "z",
-               "no2", "ozone", "tmmx", "rmax")
-names(exposures) <- exp_names
-
-
-##### 2. Restrict to complete follow-up 2010 through 2016, no deaths #####
-idx <- which(qid_dat$entry == 2000 & # follow up from 2000
-               qid_dat$year > 2009) # year 2010 and later for 10 lag years exposures
-qid_dat <- qid_dat[idx]
-exposures <- lapply(names(exposures), function(e) exposures[[e]][idx,])
+               "no3", "oc", "pb", "si", "so4", "v", "z")
 names(exposures) <- exp_names
 
 ##### Remove rows with missing exposure data #####
@@ -61,40 +50,38 @@ qid_dat <- qid_dat[idx]
 exposures <- lapply(names(exposures), function(e) exposures[[e]][idx,])
 names(exposures) <- exp_names
 
-##### Data fixes #####
-qid_dat[, age_corrected := entry_age + year - entry]
-qid_dat[, PIR := medianhousevalue/medhouseholdincome]
-# clear missing data, infinite PIR
-idx2 <- which(!is.infinite(qid_dat$PIR) &
-                complete.cases(qid_dat[,.(year, age_corrected, dual, race, sexM,
-                                        education, poverty, pct_blk, hispanic,
-                                        popdensity, pct_owner_occ, PIR)]))
-qid_dat <- qid_dat[idx2]
-exposures <- lapply(names(exposures), function(e) exposures[[e]][idx2,])
-names(exposures) <- exp_names
-
-##### Remove QID after missing year of data #####
-idx3 <- which(qid_dat$year == 2010)
-qid_rm <- qid_dat[idx3, qid]
-for (yr in 2011:2016) {
-  idx3 <- c(idx3, which(qid_dat$year == yr & qid_dat$qid %in% qid_rm))
-  qid_rm <- qid_dat[idx3][year == yr, qid]
-}
-qid_dat <- qid_dat[idx3]
-exposures <- lapply(names(exposures), function(e) exposures[[e]][idx3,])
-names(exposures) <- exp_names
-rm(idx, idx2, idx3, qid_rm)
-
 ##### Summary stats #####
 qid_dat[, .N]
-qid_dat[, uniqueN(qid)]
-qid_dat[, uniqueN(qid), by = year]
-qid_dat[, sum(first_hosp)]
-qid_dat[year == 2000, mean(age_corrected)]
-qid_dat[, .(sum(first_hosp), sum(dead)), by = year]
-qid_dat[, sum(first_hosp)/uniqueN(qid)]
-qid_dat[, sum(dead)/uniqueN(qid)]
-qid_dat[, .(sum(first_hosp)/uniqueN(qid), sum(dead)/uniqueN(qid)), by = year]
+hist(qid_dat$lograte)
+
+##### State rate data #####
+qid_dat[, wt := at_risk / sum(at_risk), by = .(year, state, sexM, age_cat, dual_any, race)]
+state_dat <- qid_dat[, .(at_risk = sum(at_risk), n_hosp = sum(n_hosp), 
+                         rate = sum(n_hosp) / sum(at_risk),
+                         avg_age = sum(wt * avg_age),
+                         his = sum(wt * his), blk = sum(wt * blk),
+                         PIR = sum(wt * PIR), pov = sum(wt * pov), ed = sum(wt * ed),
+                         oo = sum(wt * oo), dens = sum(wt * dens),
+                         s_tmmx = sum(wt * s_tmmx), w_tmmx = sum(wt * w_tmmx),
+                         s_rmax = sum(wt * s_rmax), w_rmax = sum(wt * w_rmax),
+                         lat = sum(wt * lat), long = sum(wt * long), 
+                         state = first(state), region = first(region)),
+                     by = .(year, state, sexM, age_cat, dual_any, race)]
+state_dat[rate == 0, rate := min(state_dat$rate[state_dat$rate > 0])]
+state_dat[, lograte := log(rate)]
+state_exp <- lapply(exposures, function(e) matrix(0, state_dat[,.N], 10))
+for (i in 1:nrow(state_dat)) {
+  if (i %% 1000 == 0) cat(".")
+  idx <- which(qid_dat$state == state_dat$state[i] &
+                 qid_dat$year == state_dat$year[i] &
+                 qid_dat$sexM == state_dat$sexM[i] &
+                 qid_dat$age_cat == state_dat$age_cat[i] &
+                 qid_dat$dual_any == state_dat$dual_any[i] &
+                 qid_dat$race == state_dat$race[i])
+  for (e in names(exposures)) {
+    state_exp[[e]][i, ] <- crossprod(qid_dat$wt[idx], exposures[[e]][idx,,drop = F])
+  }
+}
 
 
 #### Lag 1 correlations ####
@@ -105,37 +92,23 @@ corrplot::corrplot(l1cor, type = "lower", method = "square")
 
 ##### 4. DLMM analysis - TDLMM #####
 library(dlmtree)
-library(mgcv)
-
-set.seed(8372)
-qid_samp <- qid_dat[year == 2010, qid][sample(qid_dat[year == 2010, .N], 10000)]
-qid_dat[qid %in% qid_samp, .N] # 4972500
-
-form <- as.formula(first_hosp ~ factor(year) +
-                     age_corrected + I(age_corrected^2) + 
-                     factor(dual) + factor(race) + factor(sexM) +
-                     education + poverty + PIR +
-                     pct_blk + hispanic + popdensity + pct_owner_occ)
-init.params <- bam(form,
-                   data = qid_dat,#[qid %in% qid_samp], 
-                   family = binomial,
-                   control = gam.control(trace = TRUE))$coefficients
-
+form <- as.formula(lograte ~ factor(age_cat) + sexM + dual_any + factor(race) + 
+                     factor(year) + factor(state) + his + blk + PIR + pov + ed + 
+                     oo + dens + avg_age)
 mm <- tdlmm(form,
             data = qid_dat,
-            exposure.data = exposures, # 15 pm components, no2, ozone, tmmx, rmax
-            mixture.interactions = "none",
-            family = "logit", shrinkage = "exposures",
-            #subset = which(qid_dat$qid %in% qid_samp),
-            mix.prior = 0.876, # prior inc prob = 0.5
-            n.trees = 10, # limited to 20 exposures, 10 interactions
-            n.burn = 1000, n.iter = 2500, n.thin = 5,
-            initial.params = init.params)
-save(mm, file = paste0(dir_data, "analysis/tdlmm_10t_0.5pip_alldat_noint_region",
-                       region, "_", AD_ADRD, "_",
+            exposure.data = exposures, # 15 pm components
+            mixture.interactions = "noself",
+            shrinkage = "exposures",
+            mix.prior = 1, # prior inc prob = 0.5
+            n.trees = 20, # limited to 20 exposures, 10 interactions
+            n.burn = 200, n.iter = 500, n.thin = 5)
+save(mm, file = paste0(dir_data, "analysis/DLMM_agg/tdlmm_100atrisk_", AD_ADRD, "_",
                        code_type, "_pm25comp.rda"))
 (ss <- summary(mm))
-#plot.summary.tdlmm(ss)
+plot(rowMeans(mm$termNodes))
+plot(rowMeans(mm$termNodes2))
+plot(ss)
 
 ##### Adjusting for changes in co-exposures ######
 # idx <- which(qid_dat$qid %in% qid_samp & qid_dat$year == 2010)

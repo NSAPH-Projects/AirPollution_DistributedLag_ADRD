@@ -28,7 +28,7 @@ library(NSAPHutils)
 options(stringsAsFactors = FALSE)
 setDTthreads(threads = 16)
 
-dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
+dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 
 ##### 1. Load all data #####
 

@@ -18,19 +18,16 @@ code_type <- "any" # primary or any
 
 library(data.table)
 library(fst)
-library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 8)
-Sys.setenv("OMP_NUM_THREADS" = 16)
+setDTthreads(threads = 4)
+Sys.setenv("OMP_NUM_THREADS" = 4)
 
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 
 ##### 1. Load relevant data #####
 qid_dat <- read_fst(paste0(dir_data, "analysis/region", region, "_", AD_ADRD, "_", 
                            code_type, "_qid.fst"), as.data.table = TRUE)
-exp_names <- c(paste0("pm25comp_", c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-                                   "no3", "oc", "pb", "si", "so4", "v", "z")),
-                    "no2", "ozone", "tmmx", "rmax")
+exp_names <- c("pm25", "no2", "ozone")
 lag_cols <- paste0("lag", 1:10)
 exposures <- list()
 for (e in exp_names) {
@@ -39,9 +36,6 @@ for (e in exp_names) {
                     "_", code_type, "_", e, ".fst"), columns = lag_cols,
              as.data.table = TRUE))
 }
-exp_names <- c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-               "no3", "oc", "pb", "si", "so4", "v", "z",
-               "no2", "ozone", "tmmx", "rmax")
 names(exposures) <- exp_names
 
 
@@ -86,7 +80,7 @@ names(exposures) <- exp_names
 rm(idx, idx2, idx3, qid_rm)
 
 ##### Summary stats #####
-qid_dat[, .N]
+qid_dat[, .N] # 8455031
 qid_dat[, uniqueN(qid)]
 qid_dat[, uniqueN(qid), by = year]
 qid_dat[, sum(first_hosp)]
@@ -108,8 +102,9 @@ library(dlmtree)
 library(mgcv)
 
 set.seed(8372)
-qid_samp <- qid_dat[year == 2010, qid][sample(qid_dat[year == 2010, .N], 10000)]
-qid_dat[qid %in% qid_samp, .N] # 4972500
+qid_samp <- qid_dat[year == 2010, qid
+                    ][sample(qid_dat[year == 2010, .N], 500000)]
+qid_dat[qid %in% qid_samp, .N] # 2486184
 
 form <- as.formula(first_hosp ~ factor(year) +
                      age_corrected + I(age_corrected^2) + 
@@ -123,24 +118,24 @@ init.params <- bam(form,
 
 mm <- tdlmm(form,
             data = qid_dat,
-            exposure.data = exposures, # 15 pm components, no2, ozone, tmmx, rmax
-            mixture.interactions = "none",
+            exposure.data = exposures, # pm25, no2, ozone, tmmx, rmax
+            mixture.interactions = "noself",
             family = "logit", shrinkage = "exposures",
             #subset = which(qid_dat$qid %in% qid_samp),
-            mix.prior = 0.876, # prior inc prob = 0.5
+            mix.prior = 1.282, # prior inc prob = 0.5
             n.trees = 10, # limited to 20 exposures, 10 interactions
-            n.burn = 1000, n.iter = 2500, n.thin = 5,
+            n.burn = 500, n.iter = 1000, n.thin = 4,
             initial.params = init.params)
-save(mm, file = paste0(dir_data, "analysis/tdlmm_10t_0.5pip_alldat_noint_region",
-                       region, "_", AD_ADRD, "_",
-                       code_type, "_pm25comp.rda"))
+save(mm, file = paste0(dir_data, "analysis/tdlmm_10t_0.5pip_alldat_region",
+                       region, "_", AD_ADRD, "_", code_type, 
+                       "_pm25_no2_oz.rda"))
 (ss <- summary(mm))
 #plot.summary.tdlmm(ss)
 
 ##### Adjusting for changes in co-exposures ######
 # idx <- which(qid_dat$qid %in% qid_samp & qid_dat$year == 2010)
 exposureDat <- do.call(cbind.data.frame, 
-                       lapply(exposures, function(e) c(e[,1])))
+                       lapply(exposures, function(e) c(e[which(qid_dat$qid %in% qid_samp),1])))
 expMean <- colMeans(exposureDat) # Empirical means
 expIQRLevels <-                   # 25/75 percentiles of each exposure
   lapply(exposureDat, function(i) quantile(i, probs = c(0.25, 0.75)))
