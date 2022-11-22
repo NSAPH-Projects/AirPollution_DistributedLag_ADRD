@@ -26,7 +26,7 @@ library(data.table)
 library(fst)
 library(NSAPHutils)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = 4)
+setDTthreads(threads = 24)
 
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 
@@ -149,7 +149,9 @@ for (e in exposures) {
 
 
 ##### 4. Aggregate for mixtures data #####
-qid_dat[, PIR := medianhousevalue / (medhouseholdincome + 0.001)]
+qid_dat <- read_fst(paste0(dir_data, "analysis/HDLM/contUS_agg_", AD_ADRD, "_", 
+                           code_type, "_qid.fst"), as.data.table = TRUE)
+qid_dat[, PIR := medianhousevalue / (medhouseholdincome)]
 qid_dat[, age_corrected := entry_age + year - entry]
 qid_dat <- qid_dat[!is.infinite(qid_dat$PIR) &
                      complete.cases(qid_dat[,.(year, age_corrected, dual, race, sexM,
@@ -161,27 +163,28 @@ qid_dat <- qid_dat[!is.infinite(qid_dat$PIR) &
 qid_dat[, .N]
 qid_dat[, dual := dual == "1"]
 qid_dat[, dual_any := ifelse(any(dual), "Yes", "No"), by = qid]
-qid_dat[, sex := ifelse(sexM, "M", "F"), by = qid]
-qid_dat[, age_cat := cut(age_corrected, breaks = c(74, 84, 114), labels = c("75-84", "85+"))]
 qid_dat_agg_zip <- qid_dat[,.(at_risk = .N, n_hosp = sum(first_hosp), 
-                              rate = sum(first_hosp / (year - entry)) / .N,
-                              avg_age = mean(age_corrected),
+                              rate = sum(first_hosp) / .N,
+                              avg_age = mean(age_corrected), dual = mean(dual),
+                              sexM = mean(sexM == 1), 
                               his = mean(hispanic), blk = mean(pct_blk),
                               PIR = mean(PIR), pov = mean(poverty), ed = mean(education),
                               oo = mean(pct_owner_occ), dens = mean(popdensity),
                               s_tmmx = mean(summer_tmmx), w_tmmx = mean(winter_tmmx),
                               s_rmax = mean(summer_rmax), w_rmax = mean(winter_rmax),
                               lat = mean(latitude), long = mean(longitude), 
-                              state = first(statecode), region = first(region)),
-                           by = .(year, entry, zip, sex, age_cat, dual_any, race)]
+                              state = first(statecode), region = first(region),
+                              qid = first(qid)),
+                           by = .(year, zip, race)]
+qid_dat_agg_zip[, .N]
 qid_dat_agg_zip[rate == 0, rate := min(qid_dat_agg_zip$rate[qid_dat_agg_zip$rate > 0])]
 qid_dat_agg_zip[, lograte := log(rate)]
 write_fst(qid_dat_agg_zip, paste0(dir_data, "analysis/DLMM_agg/contUS_agg_", 
                                   AD_ADRD, "_", code_type, "_agg_zip.fst"))
 
 ##### 5. Create corresponding exposure data #####
-exposures <- paste0("pm25comp_", c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
-                                   "no3", "oc", "pb", "si", "so4", "v", "z"))
+exposures <- c(paste0("pm25comp_", c("br", "ca", "cu", "ec", "fe", "k", "nh4", "ni",
+                                   "no3", "oc", "pb", "si", "so4", "v", "z")))
 for (e in exposures) {
   cat("\nCreating exposure data:", e, "...")
   qid_yr_exp <- read_fst(paste0(dir_data, "qid_yr_exposures/qid_yr_", e, ".fst"), 

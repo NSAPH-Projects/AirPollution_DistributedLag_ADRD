@@ -19,11 +19,11 @@ options(stringsAsFactors = FALSE)
 
 setDTthreads(threads = 16)
 
-dir_data <- "/nfs/home/D/dam9096/shared_space/ci3_analysis/dmork/Data/DLM_ADRD/"
-dir_denominator <- "/nfs/home/D/dam9096/shared_space/ci3_health_data/medicare/mortality/1999_2016/wu/cache_data/merged_by_year_v2/"
+dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
+dir_denominator <- "/n/dominici_nsaph_l3/Lab/projects/analytic/denom_by_year/"
 
 ##### 1. Extract individual data 2009-2016 #####
-f <- list.files(dir_denominator, pattern = "\\.fst", full.names = TRUE)[11:18]
+f <- list.files(dir_denominator, pattern = "\\.fst", full.names = TRUE)[-1]
 # example <- read_fst(f[1], from = 1, to = 10000, as.data.table = TRUE)
 # names(example)
 # example
@@ -47,9 +47,18 @@ f <- list.files(dir_denominator, pattern = "\\.fst", full.names = TRUE)[11:18]
 
 myvars <- c("qid", "year", "zip", "sex", "race", "age", "dual", "dead", 
             "hmo_mo", "fips")
+race_name <- function(race) {
+  switch(race,
+         "wht",
+         "blk",
+         "oth",
+         "api",
+         "his",
+         "nat")
+}
 f_idx <- 1
-for (yr in 2009:2016) {
-  cat("\nReading", f[f_idx])
+for (yr in 2000:2016) {
+  cat("\nReading", f[f_idx], "yr = ", yr)
   dt <- read_fst(f[f_idx], columns = myvars, as.data.table = TRUE)
   setkey(dt, year, zip, qid)
   dt <- dt[year >= 2009 & # 2009-2016
@@ -58,9 +67,7 @@ for (yr in 2009:2016) {
              race != 0 & # remove unknown race
              age >= 64 & # remove invalid age
              sex != 0 # remove unknown sex
-           ][, race2 := ifelse(race == 1, "wht", # recode race
-                               ifelse(race == 2, "blk",
-                                      ifelse(race == 5, "his", "oth")))
+           ][, race2 := race_name(race)
              ][, sexM := ifelse(sex == 1, 1, 0)][] # recode sex
   dt[, race := NULL]
   setnames(dt, "race2", "race")

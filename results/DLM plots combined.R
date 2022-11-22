@@ -57,7 +57,7 @@ ggplot(plot_dat[lag == 1],
   geom_errorbar( width = 0.5, size = 2) +
   geom_point(size = 3) +
   theme_bw(base_size = 32) +
-  labs(x = "Years prior", y = "Cumulative hazard odds")
+  labs(x = "", y = "Cumulative odds ratio")
 
 
 plot_dat[lag == 1]

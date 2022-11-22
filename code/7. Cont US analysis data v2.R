@@ -29,6 +29,8 @@ options(stringsAsFactors = FALSE)
 setDTthreads(threads = 16)
 
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
+dir_denominator <- "/n/dominici_nsaph_l3/Lab/projects/analytic/denom_by_year/"
+
 
 ##### 1. Load all data #####
 
@@ -53,7 +55,7 @@ setkey(hosp_dat, QID)
 qid_entry_exit <- read_fst(paste0(dir_data, "denom/qid_entry_exit.fst"), 
                            as.data.table = TRUE)
 qid_entry_exit[entry == 2000, .N] # 27,133,737
-qid_entry_exit[entry == 2000, mean(entry_age)] # 27,133,737
+qid_entry_exit[entry == 2000, mean(entry_age)] # 75.34154
 # Merge with hospitalization records
 setkey(qid_entry_exit, qid)
 temp <- merge(hosp_dat[year < 2010, .(QID, year, first_hosp)], 
@@ -84,14 +86,33 @@ setkey(qid_entry_exit, qid)
 
 
 # FFS beneficiary yearly data
+myvars <- c("qid", "year", "zip", "sex", "race", "age", "dual", "dead", 
+            "hmo_mo", "fips")
+race_name <- function(race) {
+  sapply(race, function(r) {
+    switch(r,
+         "wht",
+         "blk",
+         "oth",
+         "api",
+         "his",
+         "nat") })
+}
 qid_dat <- data.table()
 for (yr in 2010:2016) {
   cat("\nReading year", yr)
-  dt <- read_fst(paste0(dir_data, "denom/qid_data_", yr, ".fst"), 
-                 as.data.table = TRUE)
+  dt <- read_fst(paste0(dir_denominator, "confounder_exposure_merged_nodups_health_", yr, ".fst"), 
+                 as.data.table = TRUE, columns = myvars)
   dt <- dt[zip %in% valid_zips & # restrict to continental US zipcodes
+             hmo_mo == 0 & # FFS only
+             race != 0 & # remove unknown race
+             sex != 0 & # remove unknown sex
              qid %in% qid_entry_exit$qid & # restrict to exit after 2009, continuous enrollment, no prior ADRD hosp
              !(qid %in% hosp_dat[year < yr, QID])] # eliminate ADRD hosp prior to current year
+  dt[, race2 := race_name(race)][, sexM := ifelse(sex == 1, 1, 0)]
+  dt[, race := NULL]
+  setnames(dt, "race2", "race")
+  dt <- unique(dt[complete.cases(dt)], by = c("year", "zip", "qid"))
   cat(" -", dt[,.N], "records")
   qid_dat <- rbindlist(list(qid_dat, dt))
   rm(dt)
@@ -108,13 +129,15 @@ qid_dat <- merge(qid_dat, yr_zip_confounders, by = c("year", "zip"), all.x = TRU
 qid_dat <- merge(qid_dat, qid_entry_exit, by = "qid", all.x = TRUE)
 
 setkey(qid_dat, year, zip, qid)
+qid_dat[, .N]
 write_fst(qid_dat, paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
                           code_type, "_qid.fst"))
 rm(hosp_dat, yr_zip_confounders, qid_entry_exit, pre2009_qid); gc()
 
 
 ##### 3. Create corresponding exposure data #####
-exposures <- c("pm25", "no2", "ozone") # from pm25, no2, ozone, tmmx, rmax, pr
+exposures <- c("pm25", "no2", "ozone", 
+               paste0("pm25comp_", c("ec", "oc", "no3", "nh4", "so4"))) # from pm25, no2, ozone, tmmx, rmax, pr
 for (e in exposures) {
   cat("\nCreating exposure data:", e, "...")
   qid_yr_exp <- read_fst(paste0(dir_data, "qid_yr_exposures/qid_yr_", e, ".fst"), 
@@ -133,4 +156,67 @@ for (e in exposures) {
                             code_type, "_", e, ".fst"))
   rm(exp_dat)
   cat(" complete.")
+}
+rm(qid_yr_exp)
+
+
+
+##### 4. Load and clean dataset #####
+exp_names <- c("pm25", "no2", "ozone", 
+               paste0("pm25comp_", c("ec", "oc", "no3", "nh4", "so4")))
+cols <- paste0("lag", 1:10)
+exposures <- list()
+for (e in exp_names) {
+  exposures[[e]] <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                                    code_type, "_", e, ".fst"), as.data.table = T, columns = cols)
+}
+
+
+##### + Remove rows with missing exposure data #####
+idx <- 1:nrow(qid_dat)
+for (e in exp_names) {
+  idx <- intersect(idx, which(rowSums(is.na(exposures[[e]])) == 0))
+}
+qid_dat <- qid_dat[idx]
+exposures <- lapply(names(exposures), function(e) exposures[[e]][idx,])
+names(exposures) <- exp_names
+
+
+##### + Data fixes #####
+qid_dat[, age_corrected := entry_age + year - entry]
+qid_dat[, PIR := medianhousevalue/medhouseholdincome]
+# clear missing data, zero exposure, infinite PIR
+idx2 <- which(!is.infinite(qid_dat$PIR) &
+                complete.cases(qid_dat[,.(year, age_corrected, dual, race, sexM,
+                                          region, statecode,
+                                          education, poverty, pct_blk, hispanic,
+                                          popdensity, pct_owner_occ, PIR)]))
+for (e in exp_names) {
+  idx2 <- intersect(idx2, which(rowSums(exposures[[e]] == 0) == 0))
+}
+qid_dat <- qid_dat[idx2]
+exposures <- lapply(names(exposures), function(e) exposures[[e]][idx2,])
+names(exposures) <- exp_names
+
+
+##### + Remove QID if missing earlier year of data #####
+idx3 <- which(qid_dat$year == 2010)
+qid_rm <- qid_dat[idx3, qid]
+for (yr in 2011:2016) {
+  idx3 <- c(idx3, which(qid_dat$year == yr & qid_dat$qid %in% qid_rm))
+  qid_rm <- qid_dat[idx3][year == yr, qid]
+}
+qid_dat <- qid_dat[idx3]
+exposures <- lapply(names(exposures), function(e) exposures[[e]][idx3,])
+names(exposures) <- exp_names
+qid_dat[,dead.y:=NULL]
+setnames(qid_dat,"dead.x", "dead")
+
+
+write_fst(qid_dat, paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                          code_type, "_qid_clean.fst"))
+for (e in exp_names) {
+  exposures[[e]] <- write_fst(exposures[[e]], 
+                              paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                                     code_type, "_", e, "_clean.fst"))
 }

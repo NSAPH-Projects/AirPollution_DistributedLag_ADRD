@@ -11,16 +11,12 @@ gc()
 ##### Setup #####
 AD_ADRD <- "ADRD" # AD or ADRD
 code_type <- "any" # primary or any
-n_threads = 10
-Sys.setenv(OMP_NUM_THREADS = n_threads)
 
 
 library(data.table)
 library(fst)
-library(NSAPHutils)
+library(parallel)
 options(stringsAsFactors = FALSE)
-setDTthreads(threads = n_threads)
-threads_fst(n_threads)
 
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 
@@ -110,6 +106,13 @@ qid_dat[year == 2010, .(age7584 = sum(age_corrected >=75 & age_corrected < 80),
                         age8594p = sum(age_corrected >=85 & age_corrected < 90)/.N,
                         age8594p = sum(age_corrected >=90 & age_corrected < 95)/.N,
                         age95p = sum(age_corrected >= 95)/.N)] # age
+qid_dat[year == 2010, .(mean(pct_blk), sd(pct_blk))]
+qid_dat[year == 2010, .(mean(hispanic), sd(hispanic))]
+qid_dat[year == 2010, .(mean(education), sd(education))]
+qid_dat[year == 2010, .(mean(popdensity), sd(popdensity))]
+qid_dat[year == 2010, .(mean(poverty), sd(poverty))]
+qid_dat[year == 2010, .(mean(pct_owner_occ), sd(pct_owner_occ))]
+qid_dat[year == 2010, .(mean(PIR), sd(PIR))]
 
 qid_dat[, .(n_events = sum(first_hosp),
             prop_events = sum(first_hosp)/uniqueN(qid), 
@@ -222,12 +225,139 @@ for (exp in c("pm25", "no2", "ozone")) {
   cp_dlm <- crosspred(cb_dlm, m3, cen = 0, at = 0:1, bylag = 0.2)
   plot(cp_dlm, "slices", var = 1, 
        xlab = "Years prior", ylab = "Hazard Odds")
-  res <- list(cp = cp_dlm)
+  res <- list(cp = cp_dlm, mod_sum = summary(m3))
   rm(cb_dlm, m3); gc()
   
   save(res, exp_iqr, knots,
        file = paste0(dir_data, "analysis/gamns3log_dlm_comprisk_contUS_", 
                      AD_ADRD, "_", code_type, "_", exp, ".rda"))
+}
+
+##### DLM - 5yr #####
+library(mgcv)
+library(dlnm)
+AD_ADRD <- "ADRD" # AD or ADRD
+code_type <- "any" # primary or any
+dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
+qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                           code_type, "_qid_clean.fst"),
+                    as.data.table = TRUE)
+id10 <- which(qid_dat$year == 2010)
+
+for (exp in c("pm25", "no2", "ozone")) {
+  cat("\n", exp)
+  exp_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_",
+                                       code_type, "_", exp, "_clean.fst")))[,1:10]
+  exp_iqr <- IQR(exp_dat[id10, 1:5])
+  cb_dlm <- crossbasis(exp_dat[, 1:5], c(1, 5), 
+                       arglag = list(fun = "ns", knots = c(), # 2 df
+                                     intercept = TRUE), 
+                       argvar = list(fun = "lin"))
+  
+  prD <- bam(dead ~ cb_dlm + factor(year),
+             data = qid_dat, family = binomial,
+             chunk.size = 5000, 
+             control = gam.control(trace = TRUE))
+  prD_L <- bam(dead ~ cb_dlm +
+                 factor(year) + factor(statecode) +
+                 age_corrected + I(age_corrected^2) +
+                 factor(dual) + factor(race) + factor(sexM) +
+                 education + poverty + PIR +
+                 pct_blk + hispanic + popdensity + pct_owner_occ,
+               data = qid_dat, family = binomial,
+               chunk.size = 5000, 
+               control = gam.control(trace = TRUE))
+  qid_dat[, IPWcr := (1 - prD$fitted.values) / (1 - prD_L$fitted.values)]
+  qid_dat[IPWcr > 10, IPWcr := 10]
+  rm(prD, prD_L)
+  
+  m3 <- bam(first_hosp ~ cb_dlm +
+              factor(year) + factor(statecode) +
+              factor(dual) + factor(race) + factor(sexM) +
+              age_corrected + I(age_corrected^2) + 
+              education + poverty + PIR +
+              pct_blk + hispanic + popdensity + pct_owner_occ,
+            data = qid_dat, weights = qid_dat$IPWcr, 
+            family = binomial,
+            chunk.size = 5000,
+            control = gam.control(trace = TRUE))
+  cp_dlm <- crosspred(cb_dlm, m3, cen = 0, at = 0:1, bylag = 0.2)
+  plot(cp_dlm, "slices", var = 1, 
+       xlab = "Years prior", ylab = "Hazard Odds")
+  res <- list(cp = cp_dlm, mod_sum = summary(m3))
+  rm(cb_dlm, m3); gc()
+  
+  save(res, exp_iqr,
+       file = paste0(dir_data, "analysis/gamns3log_dlm5yr_comprisk_contUS_", 
+                     AD_ADRD, "_", code_type, "_", exp, ".rda"))
+}
+
+
+
+
+
+
+##### DLM - stratified by sex #####
+library(mgcv)
+library(dlnm)
+AD_ADRD <- "ADRD" # AD or ADRD
+code_type <- "any" # primary or any
+dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
+qid_dat <- read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                           code_type, "_qid_clean.fst"),
+                    as.data.table = TRUE)
+id10 <- which(qid_dat$year == 2010)
+
+for (exp in c("pm25", "no2", "ozone")) {
+  exp_dat <- as.matrix(read_fst(paste0(dir_data, "analysis/contUS_", AD_ADRD, "_", 
+                                       code_type, "_", exp, "_clean.fst")))[,1:10]
+  exp_iqr <- IQR(exp_dat[id10, 1:10])
+  
+  for (sex in 0:1) {
+    idx <- which(qid_dat$sexM == sex)
+    cat("\n", exp, "sexM =", sex, "n =", length(idx))
+    cb_dlm <- crossbasis(exp_dat[idx, 1:10], c(1, 10), 
+                         arglag = list(fun = "ns", knots = exp(log(10/2)), 
+                                       intercept = TRUE), 
+                         argvar = list(fun = "lin"))
+    
+    prD <- bam(dead ~ cb_dlm + factor(year),
+               data = qid_dat[idx], family = binomial,
+               chunk.size = 5000, cluster = cl,
+               control = gam.control(trace = TRUE))
+    prD_L <- bam(dead ~ cb_dlm +
+                   factor(year) + factor(statecode) +
+                   age_corrected + I(age_corrected^2) +
+                   factor(dual) + factor(race) + 
+                   education + poverty + PIR +
+                   pct_blk + hispanic + popdensity + pct_owner_occ,
+                 data = qid_dat[idx], family = binomial,
+                 chunk.size = 5000, cluster = cl,
+                 control = gam.control(trace = TRUE))
+    wt <- (1 - prD$fitted.values) / (1 - prD_L$fitted.values)
+    wt[wt > 10] <- 10
+    rm(prD, prD_L)
+    
+    m3 <- bam(first_hosp ~ cb_dlm +
+                factor(year) + factor(statecode) +
+                factor(dual) + factor(race) + 
+                age_corrected + I(age_corrected^2) + 
+                education + poverty + PIR +
+                pct_blk + hispanic + popdensity + pct_owner_occ,
+              data = qid_dat[idx], weights = wt, 
+              family = binomial,
+              chunk.size = 5000, cluster = cl,
+              control = gam.control(trace = TRUE))
+    cp_dlm <- crosspred(cb_dlm, m3, cen = 0, at = 0:1, bylag = 0.2)
+    plot(cp_dlm, "slices", var = 1, main = paste(exp, "sexM", sex),
+         xlab = "Years prior", ylab = "Hazard Odds")
+    res <- list(cp = cp_dlm, mod_sum = summary(m3))
+    rm(cb_dlm, m3); gc()
+    
+    save(res, exp_iqr, knots,
+         file = paste0(dir_data, "analysis/gamns3log_dlm_comprisk_contUS_", 
+                       AD_ADRD, "_", code_type, "_", exp, "_sexM", sex, ".rda"))
+  }
 }
 
 

@@ -17,12 +17,10 @@ code_type <- "any" # primary or any
 
 library(data.table)
 library(fst)
-library(NSAPHutils)
 library(mgcv)
 library(dlnm)
 library(ggplot2)
 library(ggrepel)
-library(tidytext)
 options(stringsAsFactors = FALSE)
 setDTthreads(threads = 1)
 
@@ -89,21 +87,23 @@ exp_dt <- rbindlist(list(
 ##### DLNM Plot #####
 exp_dt$exp <- factor(exp_dt$exp,
                      levels = c("PM2.5", "NO2", "Summer Ozone"))
-ggplot(exp_dt[quantile != "NAAQS" & quantile != "AQG" & quantile != "0.5%" & quantile != "99.5%"]) +
+ggplot(exp_dt[quantile != "NAAQS" & quantile != "AQG" & lag %in% c(1) & quantile != "99.5%"]) +
   geom_hline(yintercept = 1, color = "black", size = 1) +
-  # geom_ribbon(aes(x = lag, ymin = RRlow, ymax = RRhigh, fill = quantile), alpha = 0.3) +
-  geom_line(aes(x = lag, y = RR, color = quantile, linetype = quantile), size = 2) +
-  facet_grid( ~ exp) +
+  geom_ribbon(aes(x = val, ymin = RRlow, ymax = RRhigh), alpha = 0.3) +
+  geom_line(aes(x = val, y = RR, group = lag), size = 2) +
+  facet_grid( ~ exp, scales = "free_x") +
   theme_bw(base_size = 32) +
   theme(legend.position = "bottom", legend.key.width = unit(1, "cm")) +
-  scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0.05, 0)) +
+  # scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0.05, 0)) +
   # scale_y_continuous(expand = c(0, 0), limits = c(0.96, 1.13)) +
-  labs(x = "Years prior", y = "Odds ratio, relative to 0.5%", 
-       color = "", linetype = "", fill = "") +
-  theme(legend.position = c(0.93, 0.82), 
-        legend.background = element_blank(),
-        legend.key.height = unit(1, "cm"),
-        legend.key.width = unit(2.5, "cm"))
+  labs(x = "Exposure concentration", y = "Odds ratio", 
+       color = "Lag", linetype = "Lag", fill = "") +
+  theme(legend.position = "none") +
+  labs(title = "Exposure-response: 1 year prior")
+  # theme(legend.position = c(0.93, 0.82), 
+  #       legend.background = element_blank(),
+  #       legend.key.height = unit(1, "cm"),
+  #       legend.key.width = unit(2.5, "cm"))
 
 ##### Cumulative effect plot #####
 ggplot(exp_dt[lag == 1 & quantile != "0.5%" & quantile != "99.5%"], 
