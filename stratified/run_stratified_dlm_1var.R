@@ -84,7 +84,7 @@ ret <- foreach(exp = c("no2", "ozone", "pm25"),
         m <- tdlnm(form, data = qid_dat,
                    exposure.data = as.matrix(qid_dat[,paste0("lag", 1:10)]),
                    exposure.splits = 0,
-                   n.trees = 5, n.burn = 1000, n.iter = 2000, n.thin = 5,
+                   n.trees = 5, n.burn = 500, n.iter = 1000, n.thin = 5,
                    tree.params = c(.5, 2),
                    family = "logit", initial.params = coef, verbose = FALSE)
         s <- summary(m)
@@ -106,42 +106,34 @@ stopCluster(cl)
 #
 # ----- Run remaining results (if parallel failed) -----
 #
-# remain <- c()
-# for (file in file_list) {
-#   file_start <- strsplit(file, ".", fixed = TRUE)[[1]][1]
-#   if (!(paste0(file_start, ".rda") %in% list.files(dir_results))) {
-#     remain <- c(remain, file)
-#   }
-# }
-# 
-# for (file in (remain)) {
-#   file_start <- strsplit(file, ".", fixed = TRUE)[[1]][1]
-#   cat("\n", file_start)
-#   if (!(paste0(file_start, ".rda") %in% list.files(dir_results))) {
-#     desc <- lapply(strsplit(file_start, "_", TRUE)[[1]],
-#                    function(i) strsplit(i, "-", TRUE)[[1]])
-#     names(desc) <- sapply(desc, function(i) i[1])
-#     desc <- lapply(desc, function(i) i[2])
-#     
-#     qid_dat <- read_fst(paste0(dir_strat, file), as.data.table = TRUE)
-#     desc$n <- qid_dat[, .N]
-#     cat(" (n = ", qid_dat[,.N], ")")
-#     form <- as.formula(first_hosp ~
-#                          factor(year) + factor(statecode) + 
-#                          age_corrected + education + poverty + PIR +
-#                          pct_blk + hispanic + popdensity + pct_owner_occ)
-#     coef <- coef(bam(form, data = qid_dat, family = binomial))
-#     m <- tdlnm(form, data = qid_dat,
-#                exposure.data = as.matrix(qid_dat[,paste0("lag", 1:10)]),
-#                exposure.splits = 0,
-#                n.trees = 10, n.burn = 1000, n.iter = 2000, n.thin = 5,
-#                tree.params = c(.5, 2),
-#                family = "logit", initial.params = coef)
-#     s <- summary(m)
-#     
-#     save(desc, s, file = paste0(dir_results, file_start, ".rda"))
-#     cat(" complete")
-#   } else {
-#     cat(" complete")
-#   }
-# }
+for (exp in c("no2", "ozone", "pm25")) {
+for (var in c("racerti", "dual", "sexM", "age")) {
+for (level in unique(desc[[var]])) {
+  if (!(paste0("exp-", exp, "_var-", var, "_level-", level, ".rda") %in% 
+        list.files(dir_results))) {
+    qid_dat <- 
+      rbindlist(lapply(which(desc[[var]] == level & desc$exp == exp), function(x) {
+        read_fst(paste0(dir_strat, desc$file[x]), as.data.table = TRUE)
+      }))
+    n <- qid_dat[, .N]
+    cat("Running model: exp =", exp, "var = ", var, "level =", level,
+        "n =", n, "\n")
+    
+    form <- as.formula(first_hosp ~
+                         factor(year) + factor(statecode) + 
+                         age_corrected + education + poverty + PIR +
+                         pct_blk + hispanic + popdensity + pct_owner_occ)
+    coef <- coef(bam(form, data = qid_dat, family = binomial))
+    m <- tdlnm(form, data = qid_dat,
+               exposure.data = as.matrix(qid_dat[,paste0("lag", 1:10)]),
+               exposure.splits = 0,
+               n.trees = 5, n.burn = 500, n.iter = 1000, n.thin = 5,
+               tree.params = c(.5, 2),
+               family = "logit", initial.params = coef, verbose = FALSE)
+    s <- summary(m)
+    
+    save(var, level, exp, n, s,
+         file = paste0(dir_results, 
+                       "exp-", exp, "_var-", var, "_level-", level, ".rda"))
+  } # end if no results
+}}} # end loops
