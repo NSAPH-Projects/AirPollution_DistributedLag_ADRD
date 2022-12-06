@@ -57,7 +57,7 @@ ggplot(plot_dat[exp == "no2"],
   geom_hline(yintercept = 1, color = "black", size = 0.5, linetype = 1) +
   # theme and display
   theme_minimal(base_size = 16) +
-  facet_grid(race ~ dual + age) +
+  facet_grid(race ~ dual + age, scales = "free_y") +
   scale_x_continuous(breaks = 1:10, limits = c(1, 10), minor_breaks = NULL) +
   scale_color_brewer(type = "div", palette = "Set1", 
                      aesthetics = c("color", "fill")) +

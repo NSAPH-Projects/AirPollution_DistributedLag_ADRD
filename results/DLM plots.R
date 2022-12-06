@@ -1,108 +1,64 @@
 library(data.table)
 library(ggplot2)
+library(dplyr)
+library(tidyr)
 
 AD_ADRD <- "ADRD" # AD or ADRD
 code_type <- "any" # primary or any
 dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
-boot_size <- 533165
-n <- 8507437
+who_epa_diff <- c(pm25 = 7, no2 = 43, ozone = 10)
 
-exp <- "no2"
-load(paste0(dir_data, "analysis/gamns_state_dlmaic_contUS_", AD_ADRD, "_", 
-            code_type, "_", exp, ".rda"))
-load(paste0(dir_data, "analysis/gamcrpen-state_contUS_", AD_ADRD, "_",
-                   code_type, "_", exp, ".rda"))
-q1 <- which(aic_res[[2]]$cp$predvar == k[3])
-q3 <- which(aic_res[[2]]$cp$predvar == k[5])
-exp_iqr <- k[5] - k[3]
-df_bic <- which.min(sapply(1:10, function(df) aic_res[[df]]$bic))
-df_aic <- which.min(sapply(1:10, function(df) aic_res[[df]]$aic))
+plot_dat <- list()
+for (exp in c("pm25", "no2", "ozone")) {
+  load(paste0(dir_data, "analysis/gamns3log_dlm_comprisk_contUS_", AD_ADRD, "_", 
+              code_type, "_", exp, ".rda"))
+  if (!("cp" %in% names(res))) {
+    res <- res[[3]]
+  }
+  df <- 3
+  fit <- res$cp$matfit[2,] * who_epa_diff[exp]#exp_iqr
+  se <- res$cp$matse[2,] * 1.96 * who_epa_diff[exp]#exp_iqr
+  fit_cum <- res$cp$allfit[2] * who_epa_diff[exp]#exp_iqr
+  se_cum <- res$cp$allse[2] * 1.96 * who_epa_diff[exp]#exp_iqr
+  plot_dat[[exp]] <- data.table(lag = seq(1, 10, by = 0.2),
+                                est = exp(fit),
+                                low = exp(fit - se),
+                                high = exp(fit + se),
+                                cum = exp(fit_cum),
+                                cum_low = exp(fit_cum - se_cum ),
+                                cum_high = exp(fit_cum + se_cum),
+                                df = df,
+                                exp = exp)
+}
+plot_dat <- rbindlist(plot_dat)
 
-
-load(paste0(dir_data, "analysis/gamns_state_dlmbic_boots_contUS_",
-            AD_ADRD, "_", code_type, "_", exp, ".rda"))
-est_bic <- exp(aic_res[[df_bic]]$cp$matfit[q3,] - aic_res[[df_bic]]$cp$matfit[q1,])
-se_bic <- apply(boot_mat, 2, sd) * exp_iqr * sqrt(boot_size / n)
-
-#### df plot data ####
-plot_dat <- rbindlist(lapply(2:10, function(df) {
-  data.table(lag = seq(1, 10, by = 0.2),
-             est = exp(aic_res[[df]]$cp$matfit[q3,] - aic_res[[df]]$cp$matfit[q1,]),
-             low = exp(log(aic_res[[df]]$cp$matRRlow[q3,]) - log(aic_res[[df]]$cp$matRRlow[q1,])),
-             high = exp(log(aic_res[[df]]$cp$matRRhigh[q3,]) - log(aic_res[[df]]$cp$matRRhigh[q1,])),
-             df = df)
-}))
-#### AIC/BIC/Pen plot data ####
-plot_dat_aic_bic_pen <- rbind.data.frame(
-  data.frame(lag = seq(1, 10, by = 0.2),
-             est = exp(aic_res[[df_aic]]$cp$matfit[q3,] - aic_res[[df_aic]]$cp$matfit[q1,]),
-             low = exp(log(aic_res[[df_aic]]$cp$matRRlow[q3,]) - log(aic_res[[df_aic]]$cp$matRRlow[q1,])),
-             high = exp(log(aic_res[[df_aic]]$cp$matRRhigh[q3,]) - log(aic_res[[df_aic]]$cp$matRRhigh[q1,])),
-             group = "AIC"),
-  data.frame(lag = seq(1, 10, by = 0.2),
-             est = exp(aic_res[[df_bic]]$cp$matfit[q3,] - aic_res[[df_bic]]$cp$matfit[q1,]),
-             low = exp(log(aic_res[[df_bic]]$cp$matRRlow[q3,]) - log(aic_res[[df_bic]]$cp$matRRlow[q1,])),
-             high = exp(log(aic_res[[df_bic]]$cp$matRRhigh[q3,]) - log(aic_res[[df_bic]]$cp$matRRhigh[q1,])),
-             group = "BIC"),
-  data.frame(lag = seq(1, 10, by = 0.2),
-             est = exp(cp_dlm$matfit[q3,] - cp_dlm$matfit[q1,]),
-             low = exp(log(cp_dlm$matRRlow[q3,]) - log(cp_dlm$matRRlow[q1,])),
-             high = exp(log(cp_dlm$matRRhigh[q3,]) - log(cp_dlm$matRRhigh[q1,])),
-             group = "Pen")
-)
-#### BIC m/n boot plot data ####
-plot_dat_boot_bic <-
-  data.table(lag = seq(1, 10, by = 0.2),
-             est = est_bic,
-             low = est_bic - 1.96 * se_bic,
-             high = est_bic + 1.96 * se_bic)
-
-#### ggplot: BIC m/n boot CI ####
-ggplot(plot_dat_boot_bic, aes(x = lag, y = est, ymin = low, ymax = high)) +
-  geom_hline(yintercept = 1) +
-  geom_ribbon(fill = "grey") +
-  geom_line() +
-  theme_bw(base_size = 24) +
-  scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0, 0)) +
-  labs(x = "Years prior", y = "Hazard odds, IQR increase",
-       title = paste0("Distributed lag: ", exp, ", IQR = ", round(exp_iqr, 2)), 
-       subtitle = paste0("BIC selected df = ", df_bic, ", m/n bootstrap CI"))
-
-#### ggplot: AIC/BIC/Pen ####
-ggplot(plot_dat_aic_bic_pen,
-       aes(x = lag, y = est, ymin = low, ymax = high, group = group, color = group, fill = group)) +
-  geom_hline(yintercept = 1) +
-  geom_ribbon(alpha = 0.2) + 
-  geom_line(size = 2) +
-  theme_bw(base_size = 24) +
-  scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0, 0)) +
-  labs(x = "Years prior", y = "Hazard odds, IQR increase",
-       title = paste0("Distributed lag: ", exp, ", IQR = ", round(exp_iqr, 2)))
-
-#### ggplot: df ####
-ggplot(plot_dat, aes(x = lag, y = est, ymin = low, ymax = high, 
-                     group = df, color = factor(df))) +
-  geom_hline(yintercept = 1) +
-  geom_line(size = 2, alpha = 0.5) +
-  theme_bw(base_size = 24) +
-  scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0, 0)) +
-  labs(x = "Years prior", y = "Hazard odds, IQR increase", color = "df",
-       title = paste0("Distributed lag: ", exp, ", IQR = ", round(exp_iqr, 2)))
+plot_dat[lag %in% 1:10, .(lag, est = paste0(round(est,4), 
+                                            " (", round(low,4), ", ", 
+                                            round(high,4), ")"), exp)] %>%
+  pivot_wider(c("lag", "exp"), names_from = "exp", values_from = "est")
 
 #### ggplot: df = 3 ####
-ggplot(plot_dat[df == 3], aes(x = lag, y = est, 
-                               ymin = low, ymax = high, group = df)) +
-  geom_hline(yintercept = 1) +
-  geom_ribbon(alpha = 0.5) +
+plot_dat$exp <- factor(plot_dat$exp, levels = c("pm25", "no2", "ozone"),
+                       labels = c("PM[2.5]", "NO[2]", "Summer~Ozone"))
+ggplot(plot_dat, aes(x = lag, y = est, 
+                     ymin = low, ymax = high, group = df)) +
+  geom_hline(yintercept = 1, color = "black", size = 1) +
+  geom_ribbon(fill = "grey", color = "grey", size = 1) +
   geom_line(size = 2) +
-  theme_bw(base_size = 24) +
-  scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0, 0)) +
-  labs(x = "Years prior", y = "Hazard odds, IQR increase", color = "df",
-       title = paste0("Distributed lag: ", exp, ", IQR = ", round(exp_iqr, 2)))
+  facet_grid(~exp, labeller = label_parsed) +
+  theme_bw(base_size = 32) +
+  scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0.05, 0)) +
+  #scale_y_continuous(expand = c(0, 0), limits = c(0.96, 1.19)) +
+  labs(x = "Years prior", y = "Odds ratio (NAAQS vs AQG)")
+
+ggplot(plot_dat[lag == 1], 
+       aes(x = exp, y = cum, ymin = cum_low, ymax = cum_high)) +
+  geom_hline(yintercept = 1, color = "black", size = 1) +
+  geom_errorbar( width = 0.5, size = 2) +
+  geom_point(size = 3) +
+  scale_x_discrete(labels = parse(text = levels(plot_dat$exp))) +
+  theme_bw(base_size = 32) +
+  labs(x = "", y = "Cumulative odds ratio\n(NAAQS vs AQG)")
 
 
-
-which.min(sapply(1:10, function(df) aic_res[[df]]$aic))
-plot(1:10, sapply(1:10, function(df) aic_res[[df]]$aic))
-which.min(sapply(1:10, function(df) aic_res[[df]]$bic))
-plot(1:10, sapply(1:10, function(df) aic_res[[df]]$bic))
+plot_dat[lag == 1]
