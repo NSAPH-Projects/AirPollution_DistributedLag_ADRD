@@ -8,7 +8,12 @@ files <- list.files(dir_results)
 plot_dat <- list()
 for (f in files) {
   load(paste0(dir_results, f))
-  desc[['n']] <- NULL
+  file_start <- strsplit(f, ".", fixed = TRUE)[[1]][1]
+  desc <- lapply(strsplit(file_start, "_", TRUE)[[1]],
+                 function(i) strsplit(i, "-", TRUE)[[1]])
+  names(desc) <- sapply(desc, function(i) i[1])
+  desc <- lapply(desc, function(i) i[2])
+  # desc[['n']] <- NULL
   plot_dat[[f]] <- cbind.data.frame(
     desc,
     data.frame(change = exp_change[desc$exp][[1]],
@@ -34,16 +39,25 @@ plot_dat$age <- factor(plot_dat$age,
                        levels = c("young", "old"),
                        labels = c("75-80", "81+"))
 plot_dat$eff <- plot_dat$low > 1 | plot_dat$high < 1
-# NO2
+
+
+
+
+
+# NO2 -----
 ggplot(plot_dat[exp == "no2"], 
-       aes(x = lag, y = est, ymin = low, ymax = high, linetype = sexM,
-           color = sexM, fill = sexM, group = sexM)) +
+       aes(x = lag, y = est, 
+           ymin = low, ymax = high, 
+           linetype = sexM, color = sexM, fill = sexM, group = sexM)) +
+  # credible intervals
   geom_ribbon(alpha = 0.25) +
-  # geom_line(size = 1) +
+  # periods of susceptibility
   geom_point(aes(x = lag, y = ifelse(eff == 1, est, NA)), size = 1) +
+  # reference line
   geom_hline(yintercept = 1, color = "black", size = 0.5, linetype = 1) +
+  # theme and display
   theme_minimal(base_size = 16) +
-  facet_grid(race ~ dual + age, scales = "free_y") +
+  facet_grid(race ~ dual + age) +
   scale_x_continuous(breaks = 1:10, limits = c(1, 10), minor_breaks = NULL) +
   scale_color_brewer(type = "div", palette = "Set1", 
                      aesthetics = c("color", "fill")) +
@@ -63,7 +77,11 @@ ggplot(plot_dat[exp == "no2"],
   labs(x = "", y = "Cumulative odds ratio (IQR increase)", title = "NO2",
        color = "")
 
-# PM2.5
+
+
+
+
+# PM2.5 -----
 ggplot(plot_dat[exp == "pm25"], 
        aes(x = lag, y = est, ymin = low, ymax = high, linetype = sexM,
            color = sexM, fill = sexM, group = sexM)) +

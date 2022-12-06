@@ -42,13 +42,13 @@ plot_dat[lag %in% 1:10, .(lag, est = paste0(round(est,4),
 
 #### ggplot: df = 3 ####
 plot_dat$exp <- factor(plot_dat$exp, levels = c("pm25", "no2", "ozone"),
-                       labels = c("PM2.5", "NO2", "Summer Ozone"))
+                       labels = c("PM[2.5]", "NO[2]", "Summer~Ozone"))
 plot_dat$sex <- factor(plot_dat$sex, levels = 0:1, labels = c("Female", "Male"))
 ggplot(plot_dat, aes(x = lag, y = est, ymin = low, ymax = high, color = sex, fill = sex)) +
   geom_hline(yintercept = 1, color = "black", size = 1) +
   geom_ribbon(alpha = 0.25, size = 0) +
   geom_line(size = 2) +
-  facet_grid(~exp) +
+  facet_grid(~exp, labeller = label_parsed) +
   theme_bw(base_size = 32) +
   theme(legend.position = "bottom") +
   scale_x_continuous(breaks = 1:10, minor_breaks = NULL, expand = c(0.05, 0)) +
@@ -61,6 +61,7 @@ ggplot(plot_dat[lag == 1],
   geom_errorbar(width = 0.5, size = 2, position = position_dodge(width = 0.5)) +
   geom_point(size = 3, position = position_dodge(width = 0.5)) +
   theme_bw(base_size = 32) +
+  scale_x_discrete(labels = parse(text = levels(pd$exp))) +
   labs(x = "", y = "Cumulative odds ratio", color="") +
   theme(legend.position = "bottom")
 

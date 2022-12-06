@@ -99,3 +99,4 @@ ggplot(plot_dat[exp == "ozone" & lag == 1],
   theme_minimal(base_size = 16) +
   theme(legend.position = "bottom") +
   labs(x = "", y = "Cumulative odds ratio (IQR increase)", title = "Ozone")
+

@@ -11,8 +11,6 @@ gc()
 #
 # ----- Setup -----
 #
-AD_ADRD <- "ADRD" # AD or ADRD outcome
-code_type <- "any" # primary or any outcome
 n_threads = 48
 Sys.setenv(OMP_NUM_THREADS = n_threads)
 
@@ -25,10 +23,8 @@ dir_data <- "/n/home_fasse/dmork/projects/adrd_dlm/data/"
 dir_strat <- paste0(dir_data, "analysis/DLM_Strat/stratified_data/")
 
 # RTI race
-rti <- rbindlist(lapply(c(2010), function(y) {
-  d <- fread(paste0("~/nsaph_projects/pm_no2_o3-adrd_hosp-medicare-causalgps/",
-                    "data/auxiliary_medicare_cols/rti_race_", y, ".csv"))[,year := y][]
-}), fill = TRUE)
+rti <- fread(paste0("~/nsaph_projects/pm_no2_o3-adrd_hosp-medicare-causalgps/",
+                    "data/auxiliary_medicare_cols/rti_race_2010.csv"))
 rti[, rti_race_cd := as.integer(rti_race_cd)]
 rti[rti_race_cd != 0, race_rti := c("wht", "blk", "oth", "api", "his", "nat")[rti_race_cd]]
 

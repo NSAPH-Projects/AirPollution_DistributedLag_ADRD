@@ -11,7 +11,7 @@ gc()
 #
 # ----- Setup -----
 #
-n_threads = 24
+n_threads = 16
 Sys.setenv(OMP_NUM_THREADS = n_threads)
 
 library(data.table)
@@ -106,8 +106,8 @@ stopCluster(cl)
 #
 # ----- Run remaining results (if parallel failed) -----
 #
-for (exp in c("no2", "ozone", "pm25")) {
-for (var in c("racerti", "dual", "sexM", "age")) {
+for (exp in c("pm25", "ozone", "no2")) {
+for (var in c("dual", "sexM", "age", "racerti")) {
 for (level in unique(desc[[var]])) {
   if (!(paste0("exp-", exp, "_var-", var, "_level-", level, ".rda") %in% 
         list.files(dir_results))) {
@@ -129,7 +129,7 @@ for (level in unique(desc[[var]])) {
                exposure.splits = 0,
                n.trees = 5, n.burn = 500, n.iter = 1000, n.thin = 5,
                tree.params = c(.5, 2),
-               family = "logit", initial.params = coef, verbose = FALSE)
+               family = "logit", initial.params = coef, verbose = TRUE)
     s <- summary(m)
     
     save(var, level, exp, n, s,
